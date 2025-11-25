@@ -32,10 +32,9 @@ namespace CinemaManagementSystem.Services
                     f.Возрастные_ограничения,
                     f.Описание
                 FROM Фильмы f
-                JOIN Жанры j ON f.Код_жанра = j.Код_жанра
+                LEFT JOIN Жанры j ON f.Код_жанра = j.Код_жанра
                 JOIN Сеанс s ON f.Код_фильма = s.Код_фильма
-                JOIN Репертуар r ON s.Код_сеанса = r.Код_сеанса
-                WHERE r.Дата >= @ДатаС
+                WHERE s.Дата >= @ДатаС
                 ORDER BY f.Наименование";
 
             var parameter = new SqlParameter("@ДатаС", fromDate ?? DateTime.Today);
@@ -49,22 +48,26 @@ namespace CinemaManagementSystem.Services
         {
             string query = @"
                 SELECT 
-                    r.Код_сеанса,
-                    r.Дата,
-                    r.Время_начала,
-                    r.Время_окончания,
-                    r.Цена_билета,
+                    s.Код_сеанса,
+                    s.Дата,
+                    s.Время_начала,
+                    s.Время_окончания,
+                    s.Цена_билета,
                     s.Номер_зала,
                     z.Наименование AS Зал,
                     z.Количество_мест,
-                    s.Занятость,
-                    (z.Количество_мест - s.Занятость) AS Свободных_мест
-                FROM Репертуар r
-                JOIN Сеанс s ON r.Код_сеанса = s.Код_сеанса
+                    z.Количество_мест - ISNULL(занятые.Занято, 0) AS Свободных_мест
+                FROM Сеанс s
                 JOIN Залы z ON s.Номер_зала = z.Номер_зала
+                LEFT JOIN (
+                    SELECT Код_сеанса, COUNT(*) AS Занято
+                    FROM Бронирования
+                    WHERE Статус != N'Отменено'
+                    GROUP BY Код_сеанса
+                ) занятые ON s.Код_сеанса = занятые.Код_сеанса
                 WHERE s.Код_фильма = @Код_фильма
-                  AND r.Дата >= @Дата
-                ORDER BY r.Дата, r.Время_начала";
+                  AND s.Дата >= @Дата
+                ORDER BY s.Дата, s.Время_начала";
 
             var parameters = new SqlParameter[]
             {
@@ -123,18 +126,18 @@ namespace CinemaManagementSystem.Services
                 SELECT 
                     b.Код_бронирования,
                     f.Наименование AS Фильм,
-                    r.Дата,
-                    r.Время_начала,
-                    s.Номер_зала,
+                    s.Дата,
+                    s.Время_начала,
+                    z.Наименование AS Зал,
                     b.Ряд,
                     b.Номер_места,
                     b.Сумма,
                     b.Статус,
                     b.Дата_бронирования
                 FROM Бронирования b
-                JOIN Репертуар r ON b.Код_сеанса = r.Код_сеанса
-                JOIN Сеанс s ON r.Код_сеанса = s.Код_сеанса
+                JOIN Сеанс s ON b.Код_сеанса = s.Код_сеанса
                 JOIN Фильмы f ON s.Код_фильма = f.Код_фильма
+                JOIN Залы z ON s.Номер_зала = z.Номер_зала
                 WHERE b.Код_пользователя = @Код_пользователя
                 ORDER BY b.Дата_бронирования DESC";
 
@@ -149,21 +152,14 @@ namespace CinemaManagementSystem.Services
         {
             try
             {
-                string query = @"
-                    UPDATE Бронирования 
-                    SET Статус = N'Отменено' 
-                    WHERE Код_бронирования = @Код_бронирования 
-                      AND Код_пользователя = @Код_пользователя
-                      AND Статус = N'Забронировано'";
-
                 var parameters = new SqlParameter[]
                 {
                     new SqlParameter("@Код_бронирования", bookingId),
                     new SqlParameter("@Код_пользователя", userId)
                 };
 
-                int rowsAffected = dbService.ExecuteNonQuery(query, parameters);
-                return rowsAffected > 0;
+                DataTable result = dbService.ExecuteStoredProcedure("ОтменитьБронирование", parameters);
+                return result.Rows.Count > 0;
             }
             catch (Exception ex)
             {
@@ -176,13 +172,28 @@ namespace CinemaManagementSystem.Services
         /// </summary>
         public DataTable GetStatistics(DateTime? dateFrom = null, DateTime? dateTo = null)
         {
+            string query = @"
+                SELECT 
+                    f.Наименование AS Фильм,
+                    COUNT(b.Код_бронирования) AS Количество_бронирований,
+                    SUM(b.Сумма) AS Общая_сумма,
+                    AVG(CAST(b.Сумма AS FLOAT)) AS Средняя_цена,
+                    s.Дата
+                FROM Фильмы f
+                JOIN Сеанс s ON f.Код_фильма = s.Код_фильма
+                LEFT JOIN Бронирования b ON s.Код_сеанса = b.Код_сеанса AND b.Статус != N'Отменено'
+                WHERE (@ДатаС IS NULL OR s.Дата >= @ДатаС)
+                  AND (@ДатаПо IS NULL OR s.Дата <= @ДатаПо)
+                GROUP BY f.Наименование, s.Дата
+                ORDER BY s.Дата DESC, Количество_бронирований DESC";
+
             var parameters = new SqlParameter[]
             {
                 new SqlParameter("@ДатаС", dateFrom ?? (object)DBNull.Value),
                 new SqlParameter("@ДатаПо", dateTo ?? (object)DBNull.Value)
             };
 
-            return dbService.ExecuteStoredProcedure("СтатистикаПосещаемости", parameters);
+            return dbService.ExecuteQuery(query, parameters);
         }
 
         /// <summary>
