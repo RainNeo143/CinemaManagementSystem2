@@ -564,14 +564,21 @@ namespace CinemaManagementSystem.Forms
                 // Раскрашиваем строки по статусу
                 foreach (DataGridViewRow row in dgvMyBookings.Rows)
                 {
-                    if (row.Cells["Статус"].Value.ToString() == "Отменено")
+                    // ИСПРАВЛЕНИЕ: Добавлена проверка на null
+                    if (row.Cells["Статус"].Value != null &&
+                        row.Cells["Статус"].Value != DBNull.Value)
                     {
-                        row.DefaultCellStyle.BackColor = Color.FromArgb(255, 200, 200);
-                        row.DefaultCellStyle.ForeColor = Color.Gray;
-                    }
-                    else if (row.Cells["Статус"].Value.ToString() == "Забронировано")
-                    {
-                        row.DefaultCellStyle.BackColor = Color.FromArgb(200, 255, 200);
+                        string status = row.Cells["Статус"].Value.ToString();
+
+                        if (status == "Отменено")
+                        {
+                            row.DefaultCellStyle.BackColor = Color.FromArgb(255, 200, 200);
+                            row.DefaultCellStyle.ForeColor = Color.Gray;
+                        }
+                        else if (status == "Забронировано")
+                        {
+                            row.DefaultCellStyle.BackColor = Color.FromArgb(200, 255, 200);
+                        }
                     }
                 }
             }

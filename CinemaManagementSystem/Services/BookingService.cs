@@ -123,23 +123,23 @@ namespace CinemaManagementSystem.Services
         public DataTable GetUserBookings(int userId)
         {
             string query = @"
-                SELECT 
-                    b.Код_бронирования,
-                    f.Наименование AS Фильм,
-                    s.Дата,
-                    s.Время_начала,
-                    z.Наименование AS Зал,
-                    b.Ряд,
-                    b.Номер_места,
-                    b.Сумма,
-                    b.Статус,
-                    b.Дата_бронирования
-                FROM Бронирования b
-                JOIN Сеанс s ON b.Код_сеанса = s.Код_сеанса
-                JOIN Фильмы f ON s.Код_фильма = f.Код_фильма
-                JOIN Залы z ON s.Номер_зала = z.Номер_зала
-                WHERE b.Код_пользователя = @Код_пользователя
-                ORDER BY b.Дата_бронирования DESC";
+        SELECT 
+            b.Код_бронирования,
+            f.Наименование AS Фильм,
+            s.Дата,
+            s.Время_начала,
+            z.Наименование AS Зал,
+            b.Ряд,
+            b.Номер_места,
+            b.Сумма,
+            ISNULL(b.Статус, 'Неизвестно') AS Статус,  -- Добавлен ISNULL
+            b.Дата_бронирования
+        FROM Бронирования b
+        INNER JOIN Сеанс s ON b.Код_сеанса = s.Код_сеанса
+        INNER JOIN Фильмы f ON s.Код_фильма = f.Код_фильма
+        INNER JOIN Залы z ON s.Номер_зала = z.Номер_зала
+        WHERE b.Код_пользователя = @Код_пользователя
+        ORDER BY s.Дата DESC, s.Время_начала DESC";
 
             var parameter = new SqlParameter("@Код_пользователя", userId);
             return dbService.ExecuteQuery(query, parameter);
