@@ -2,6 +2,7 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.Drawing.Printing;
 using System.IO;
 using System.Windows.Forms;
 using CinemaManagementSystem.Models;
@@ -9,8 +10,8 @@ using CinemaManagementSystem.Models;
 namespace CinemaManagementSystem.Services
 {
     /// <summary>
-    /// Сервис генерации билетов в PDF формате
-    /// Использует создание изображения билета и сохранение через PrintDocument
+    /// Сервис генерации билетов
+    /// Поддерживает PNG, PDF (через виртуальный принтер) и печать
     /// </summary>
     public class TicketService
     {
@@ -28,7 +29,7 @@ namespace CinemaManagementSystem.Services
                 g.SmoothingMode = SmoothingMode.AntiAlias;
                 g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-                // Фон билета
+                // Фон билета - градиент
                 using (LinearGradientBrush brush = new LinearGradientBrush(
                     new Rectangle(0, 0, TICKET_WIDTH, TICKET_HEIGHT),
                     Color.FromArgb(41, 128, 185),
@@ -66,7 +67,7 @@ namespace CinemaManagementSystem.Services
                 // Название фильма
                 using (Font filmFont = new Font("Segoe UI", 18, FontStyle.Bold))
                 {
-                    string filmTitle = ticket.FilmTitle;
+                    string filmTitle = ticket.FilmTitle ?? "Фильм";
                     if (filmTitle.Length > 35)
                         filmTitle = filmTitle.Substring(0, 32) + "...";
                     g.DrawString(filmTitle, filmFont, new SolidBrush(Color.FromArgb(44, 62, 80)), 50, 95);
@@ -105,7 +106,7 @@ namespace CinemaManagementSystem.Services
 
                     // Зал
                     g.DrawString("ЗАЛ", labelFont, new SolidBrush(Color.FromArgb(149, 165, 166)), leftCol + 270, startY);
-                    g.DrawString(ticket.HallName, valueFont, new SolidBrush(Color.FromArgb(44, 62, 80)), leftCol + 270, startY + 15);
+                    g.DrawString(ticket.HallName ?? "1", valueFont, new SolidBrush(Color.FromArgb(44, 62, 80)), leftCol + 270, startY + 15);
 
                     // Ряд
                     g.DrawString("РЯД", labelFont, new SolidBrush(Color.FromArgb(149, 165, 166)), leftCol, startY + lineHeight + 10);
@@ -118,7 +119,7 @@ namespace CinemaManagementSystem.Services
                     // Тип места
                     g.DrawString("ТИП", labelFont, new SolidBrush(Color.FromArgb(149, 165, 166)), leftCol + 160, startY + lineHeight + 10);
                     Color seatTypeColor = ticket.SeatType == "VIP" ? Color.Gold : Color.FromArgb(44, 62, 80);
-                    g.DrawString(ticket.SeatType, valueFont, new SolidBrush(seatTypeColor), leftCol + 160, startY + lineHeight + 25);
+                    g.DrawString(ticket.SeatType ?? "Обычное", valueFont, new SolidBrush(seatTypeColor), leftCol + 160, startY + lineHeight + 25);
                 }
 
                 // Цена (большая, справа)
@@ -136,7 +137,7 @@ namespace CinemaManagementSystem.Services
                     g.DrawLine(tearPen, rightCol + 80, 100, rightCol + 80, TICKET_HEIGHT - 60);
                 }
 
-                // QR код (заглушка - квадрат)
+                // QR код (заглушка - квадрат с паттерном)
                 g.FillRectangle(Brushes.White, rightCol + 100, startY + lineHeight + 50, 100, 100);
                 g.DrawRectangle(new Pen(Color.FromArgb(44, 62, 80), 2), rightCol + 100, startY + lineHeight + 50, 100, 100);
 
@@ -156,7 +157,7 @@ namespace CinemaManagementSystem.Services
                 // Нижняя информация
                 using (Font smallFont = new Font("Segoe UI", 8))
                 {
-                    g.DrawString($"Покупатель: {ticket.BuyerName}", smallFont, new SolidBrush(Color.FromArgb(127, 140, 141)), 50, TICKET_HEIGHT - 55);
+                    g.DrawString($"Покупатель: {ticket.BuyerName ?? "Гость"}", smallFont, new SolidBrush(Color.FromArgb(127, 140, 141)), 50, TICKET_HEIGHT - 55);
                     g.DrawString($"Дата покупки: {ticket.BookingDate:dd.MM.yyyy HH:mm}", smallFont, new SolidBrush(Color.FromArgb(127, 140, 141)), 50, TICKET_HEIGHT - 40);
                     g.DrawString("Сохраните билет до окончания сеанса", smallFont, new SolidBrush(Color.FromArgb(149, 165, 166)), rightCol - 50, TICKET_HEIGHT - 40);
                 }
@@ -190,26 +191,38 @@ namespace CinemaManagementSystem.Services
         }
 
         /// <summary>
-        /// Показывает диалог сохранения и сохраняет билет
+        /// Показывает диалог сохранения и сохраняет билет (PNG или PDF)
         /// </summary>
         public string SaveTicketWithDialog(TicketInfo ticket)
         {
             using (SaveFileDialog saveDialog = new SaveFileDialog())
             {
-                saveDialog.Filter = "PNG Image|*.png|JPEG Image|*.jpg|Все файлы|*.*";
+                saveDialog.Filter = "PNG Image|*.png|JPEG Image|*.jpg|PDF Document|*.pdf|Все файлы|*.*";
                 saveDialog.Title = "Сохранить билет";
                 saveDialog.FileName = $"Билет_{ticket.TicketNumber}";
+                saveDialog.FilterIndex = 1;
 
                 if (saveDialog.ShowDialog() == DialogResult.OK)
                 {
-                    using (Bitmap bitmap = GenerateTicketImage(ticket))
-                    {
-                        ImageFormat format = ImageFormat.Png;
-                        if (saveDialog.FileName.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase))
-                            format = ImageFormat.Jpeg;
+                    string extension = Path.GetExtension(saveDialog.FileName).ToLower();
 
-                        bitmap.Save(saveDialog.FileName, format);
-                        return saveDialog.FileName;
+                    if (extension == ".pdf")
+                    {
+                        // Сохранение PDF через печать
+                        return SaveTicketAsPdf(ticket, saveDialog.FileName);
+                    }
+                    else
+                    {
+                        // Сохранение как изображение
+                        using (Bitmap bitmap = GenerateTicketImage(ticket))
+                        {
+                            ImageFormat format = ImageFormat.Png;
+                            if (extension == ".jpg" || extension == ".jpeg")
+                                format = ImageFormat.Jpeg;
+
+                            bitmap.Save(saveDialog.FileName, format);
+                            return saveDialog.FileName;
+                        }
                     }
                 }
             }
@@ -218,7 +231,81 @@ namespace CinemaManagementSystem.Services
         }
 
         /// <summary>
-        /// Показывает предпросмотр билета
+        /// Сохраняет билет как PDF (используя Microsoft Print to PDF)
+        /// </summary>
+        public string SaveTicketAsPdf(TicketInfo ticket, string filePath = null)
+        {
+            if (string.IsNullOrEmpty(filePath))
+            {
+                string folder = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                filePath = Path.Combine(folder, $"Билет_{ticket.TicketNumber}_{DateTime.Now:yyyyMMdd_HHmmss}.pdf");
+            }
+
+            try
+            {
+                // Создаём документ для печати
+                using (PrintDocument printDoc = new PrintDocument())
+                {
+                    // Настраиваем печать в PDF
+                    printDoc.PrinterSettings.PrinterName = "Microsoft Print to PDF";
+                    printDoc.PrinterSettings.PrintToFile = true;
+                    printDoc.PrinterSettings.PrintFileName = filePath;
+
+                    // Проверяем доступен ли принтер
+                    if (!printDoc.PrinterSettings.IsValid)
+                    {
+                        // Если Microsoft Print to PDF недоступен, сохраняем как PNG
+                        MessageBox.Show("PDF принтер недоступен. Билет будет сохранён как изображение PNG.",
+                            "Информация", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                        string pngPath = Path.ChangeExtension(filePath, ".png");
+                        return SaveTicketAsImage(ticket, Path.GetDirectoryName(pngPath));
+                    }
+
+                    bool printed = false;
+
+                    printDoc.PrintPage += (sender, e) =>
+                    {
+                        if (!printed)
+                        {
+                            using (Bitmap bitmap = GenerateTicketImage(ticket))
+                            {
+                                // Масштабируем билет для страницы
+                                float scale = Math.Min(
+                                    (float)e.MarginBounds.Width / bitmap.Width,
+                                    (float)e.MarginBounds.Height / bitmap.Height
+                                );
+
+                                int newWidth = (int)(bitmap.Width * scale);
+                                int newHeight = (int)(bitmap.Height * scale);
+
+                                int x = e.MarginBounds.Left + (e.MarginBounds.Width - newWidth) / 2;
+                                int y = e.MarginBounds.Top;
+
+                                e.Graphics.DrawImage(bitmap, x, y, newWidth, newHeight);
+                            }
+                            printed = true;
+                            e.HasMorePages = false;
+                        }
+                    };
+
+                    printDoc.Print();
+                }
+
+                return filePath;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка создания PDF: {ex.Message}\nБилет будет сохранён как PNG.",
+                    "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+
+                string pngPath = Path.ChangeExtension(filePath, ".png");
+                return SaveTicketAsImage(ticket, Path.GetDirectoryName(pngPath));
+            }
+        }
+
+        /// <summary>
+        /// Показывает предпросмотр билета с возможностью сохранения
         /// </summary>
         public void ShowTicketPreview(TicketInfo ticket)
         {
@@ -227,7 +314,7 @@ namespace CinemaManagementSystem.Services
                 Form previewForm = new Form
                 {
                     Text = $"Билет {ticket.TicketNumber}",
-                    ClientSize = new Size(TICKET_WIDTH + 40, TICKET_HEIGHT + 100),
+                    ClientSize = new Size(TICKET_WIDTH + 40, TICKET_HEIGHT + 120),
                     StartPosition = FormStartPosition.CenterScreen,
                     FormBorderStyle = FormBorderStyle.FixedDialog,
                     MaximizeBox = false,
@@ -243,31 +330,71 @@ namespace CinemaManagementSystem.Services
                     BorderStyle = BorderStyle.FixedSingle
                 };
 
-                Button btnSave = new Button
+                // Кнопка "Сохранить как PNG"
+                Button btnSavePng = new Button
                 {
-                    Text = "💾 Сохранить билет",
+                    Text = "💾 Сохранить PNG",
                     Location = new Point(20, TICKET_HEIGHT + 35),
-                    Size = new Size(150, 40),
+                    Size = new Size(140, 40),
                     BackColor = Color.FromArgb(46, 204, 113),
                     ForeColor = Color.White,
                     FlatStyle = FlatStyle.Flat,
                     Font = new Font("Segoe UI", 10, FontStyle.Bold),
                     Cursor = Cursors.Hand
                 };
-                btnSave.Click += (s, e) =>
+                btnSavePng.Click += (s, e) =>
                 {
-                    string savedPath = SaveTicketWithDialog(ticket);
-                    if (!string.IsNullOrEmpty(savedPath))
+                    using (SaveFileDialog dlg = new SaveFileDialog())
                     {
-                        MessageBox.Show($"Билет сохранён:\n{savedPath}", "Успех",
-                            MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        dlg.Filter = "PNG Image|*.png";
+                        dlg.FileName = $"Билет_{ticket.TicketNumber}";
+                        if (dlg.ShowDialog() == DialogResult.OK)
+                        {
+                            using (Bitmap bmp = GenerateTicketImage(ticket))
+                            {
+                                bmp.Save(dlg.FileName, ImageFormat.Png);
+                            }
+                            MessageBox.Show($"Билет сохранён:\n{dlg.FileName}", "Успех",
+                                MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        }
                     }
                 };
 
+                // Кнопка "Сохранить как PDF"
+                Button btnSavePdf = new Button
+                {
+                    Text = "📄 Сохранить PDF",
+                    Location = new Point(170, TICKET_HEIGHT + 35),
+                    Size = new Size(140, 40),
+                    BackColor = Color.FromArgb(231, 76, 60),
+                    ForeColor = Color.White,
+                    FlatStyle = FlatStyle.Flat,
+                    Font = new Font("Segoe UI", 10, FontStyle.Bold),
+                    Cursor = Cursors.Hand
+                };
+                btnSavePdf.Click += (s, e) =>
+                {
+                    using (SaveFileDialog dlg = new SaveFileDialog())
+                    {
+                        dlg.Filter = "PDF Document|*.pdf";
+                        dlg.FileName = $"Билет_{ticket.TicketNumber}";
+                        if (dlg.ShowDialog() == DialogResult.OK)
+                        {
+                            string savedPath = SaveTicketAsPdf(ticket, dlg.FileName);
+                            if (!string.IsNullOrEmpty(savedPath))
+                            {
+                                MessageBox.Show($"Билет сохранён:\n{savedPath}", "Успех",
+                                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            }
+                        }
+                    }
+                };
+
+                // Кнопка "Печать"
                 Button btnPrint = new Button
                 {
                     Text = "🖨️ Печать",
-                    Location = new Point(180, TICKET_HEIGHT + 35),
+                    Location = new Point(320, TICKET_HEIGHT + 35),
                     Size = new Size(120, 40),
                     BackColor = Color.FromArgb(52, 152, 219),
                     ForeColor = Color.White,
@@ -280,6 +407,7 @@ namespace CinemaManagementSystem.Services
                     PrintTicket(ticket);
                 };
 
+                // Кнопка "Закрыть"
                 Button btnClose = new Button
                 {
                     Text = "Закрыть",
@@ -293,37 +421,106 @@ namespace CinemaManagementSystem.Services
                 };
                 btnClose.Click += (s, e) => previewForm.Close();
 
-                previewForm.Controls.AddRange(new Control[] { pictureBox, btnSave, btnPrint, btnClose });
+                // Информация о билете
+                Label lblInfo = new Label
+                {
+                    Text = $"Фильм: {ticket.FilmTitle}  |  Дата: {ticket.SessionDate:dd.MM.yyyy}  |  " +
+                           $"Ряд: {ticket.Row}, Место: {ticket.SeatNumber}  |  Цена: {ticket.Amount:N0} ₸",
+                    Location = new Point(20, TICKET_HEIGHT + 85),
+                    Size = new Size(TICKET_WIDTH, 25),
+                    Font = new Font("Segoe UI", 9),
+                    ForeColor = Color.FromArgb(52, 73, 94)
+                };
+
+                previewForm.Controls.AddRange(new Control[] { pictureBox, btnSavePng, btnSavePdf, btnPrint, btnClose, lblInfo });
                 previewForm.ShowDialog();
             }
         }
 
         /// <summary>
-        /// Печатает билет
+        /// Печатает билет на выбранном принтере
         /// </summary>
         public void PrintTicket(TicketInfo ticket)
         {
-            using (System.Drawing.Printing.PrintDocument printDoc = new System.Drawing.Printing.PrintDocument())
+            using (PrintDocument printDoc = new PrintDocument())
             {
+                bool printed = false;
+
                 printDoc.PrintPage += (sender, e) =>
                 {
-                    using (Bitmap bitmap = GenerateTicketImage(ticket))
+                    if (!printed)
                     {
-                        // Центрируем билет на странице
-                        float x = (e.PageBounds.Width - bitmap.Width) / 2;
-                        float y = (e.PageBounds.Height - bitmap.Height) / 2;
-                        e.Graphics.DrawImage(bitmap, x, y);
+                        using (Bitmap bitmap = GenerateTicketImage(ticket))
+                        {
+                            // Центрируем и масштабируем билет
+                            float scale = Math.Min(
+                                (float)e.MarginBounds.Width / bitmap.Width,
+                                (float)e.MarginBounds.Height / bitmap.Height
+                            );
+
+                            int newWidth = (int)(bitmap.Width * scale);
+                            int newHeight = (int)(bitmap.Height * scale);
+
+                            int x = e.MarginBounds.Left + (e.MarginBounds.Width - newWidth) / 2;
+                            int y = e.MarginBounds.Top;
+
+                            e.Graphics.DrawImage(bitmap, x, y, newWidth, newHeight);
+                        }
+                        printed = true;
+                        e.HasMorePages = false;
                     }
                 };
 
-                using (System.Windows.Forms.PrintDialog printDialog = new System.Windows.Forms.PrintDialog())
+                using (PrintDialog printDialog = new PrintDialog())
                 {
                     printDialog.Document = printDoc;
                     if (printDialog.ShowDialog() == DialogResult.OK)
                     {
-                        printDoc.Print();
+                        try
+                        {
+                            printDoc.Print();
+                            MessageBox.Show("Билет отправлен на печать!", "Успех",
+                                MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        }
+                        catch (Exception ex)
+                        {
+                            MessageBox.Show($"Ошибка печати: {ex.Message}", "Ошибка",
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        }
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// Быстрое сохранение билета в папку Документы
+        /// </summary>
+        public string QuickSaveTicket(TicketInfo ticket, string format = "png")
+        {
+            string folder = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            string subFolder = Path.Combine(folder, "Билеты кинотеатра");
+
+            // Создаём подпапку если не существует
+            if (!Directory.Exists(subFolder))
+            {
+                Directory.CreateDirectory(subFolder);
+            }
+
+            string fileName = $"Билет_{ticket.TicketNumber}_{DateTime.Now:yyyyMMdd_HHmmss}";
+
+            if (format.ToLower() == "pdf")
+            {
+                string filePath = Path.Combine(subFolder, fileName + ".pdf");
+                return SaveTicketAsPdf(ticket, filePath);
+            }
+            else
+            {
+                string filePath = Path.Combine(subFolder, fileName + ".png");
+                using (Bitmap bitmap = GenerateTicketImage(ticket))
+                {
+                    bitmap.Save(filePath, ImageFormat.Png);
+                }
+                return filePath;
             }
         }
     }

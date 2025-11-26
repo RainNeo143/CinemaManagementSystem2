@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Drawing;
+using System.IO;
 using System.Windows.Forms;
 using CinemaManagementSystem.Models;
 using CinemaManagementSystem.Services;
@@ -11,25 +13,59 @@ namespace CinemaManagementSystem.Forms
     {
         private readonly User currentUser;
         private readonly BookingService bookingService;
+        private readonly AuthService authService;
         private TabControl tabControl;
         private Panel panelFilms;
         private DataGridView dgvSessions;
         private DataGridView dgvMyBookings;
         private Button btnRefresh;
         private Button btnCancelBooking;
+        private Button btnBuyTicket;
         private Label lblWelcome;
+        private Label lblBalance;
         private Panel headerPanel;
         private Button btnLogout;
         private DateTimePicker dtpSessionDate;
         private Panel filmDetailsPanel;
+        private PictureBox selectedFilmPoster;
         private int selectedFilmId = -1;
+
+        // Папка с постерами
+        private string postersPath;
+
+        // Маппинг названий фильмов к файлам постеров
+        private Dictionary<string, string> posterFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Аватар", "Аватар.jpeg" },
+            { "Аватар: Путь воды", "Аватар путь воды.png" },
+            { "Джон Уик 4", "Джон Уик 4.jpg" },
+            { "Звонок", "Звонок.jpeg" },
+            { "Крушение", "Крушение.png" },
+            { "Майор Гром: Игра", "Майор Гром Игра.jpg" },
+            { "Мстители", "Мстители.jpg" },
+            { "Операция Ы", "Операция Ы.jpg" },
+            { "Оппенгеймер", "Оппенгеймер.jpg" }
+        };
 
         public MainUserForm(User user)
         {
             currentUser = user;
             bookingService = new BookingService();
+            authService = new AuthService();
+            
+            // Определяем путь к папке с постерами
+            string appPath = AppDomain.CurrentDomain.BaseDirectory;
+            postersPath = Path.Combine(appPath, "Posters");
+            
+            // Создаём папку если её нет
+            if (!Directory.Exists(postersPath))
+            {
+                Directory.CreateDirectory(postersPath);
+            }
+            
             InitializeComponent();
             LoadData();
+            UpdateBalanceDisplay();
         }
 
         private void InitializeComponent()
@@ -40,11 +76,14 @@ namespace CinemaManagementSystem.Forms
             this.dgvMyBookings = new DataGridView();
             this.btnRefresh = new Button();
             this.btnCancelBooking = new Button();
+            this.btnBuyTicket = new Button();
             this.btnLogout = new Button();
             this.lblWelcome = new Label();
+            this.lblBalance = new Label();
             this.headerPanel = new Panel();
             this.dtpSessionDate = new DateTimePicker();
             this.filmDetailsPanel = new Panel();
+            this.selectedFilmPoster = new PictureBox();
 
             this.SuspendLayout();
 
@@ -57,9 +96,16 @@ namespace CinemaManagementSystem.Forms
             // lblWelcome
             this.lblWelcome.Font = new Font("Segoe UI", 16F, FontStyle.Bold);
             this.lblWelcome.ForeColor = Color.White;
-            this.lblWelcome.Location = new Point(20, 25);
-            this.lblWelcome.Size = new Size(1000, 35);
-            this.lblWelcome.Text = $"🎬 Добро пожаловать в кинотеатр, {currentUser.FullName}!";
+            this.lblWelcome.Location = new Point(20, 15);
+            this.lblWelcome.Size = new Size(800, 30);
+            this.lblWelcome.Text = $"🎬 Добро пожаловать, {currentUser.FullName}!";
+
+            // lblBalance
+            this.lblBalance.Font = new Font("Segoe UI", 14F, FontStyle.Bold);
+            this.lblBalance.ForeColor = Color.FromArgb(46, 204, 113);
+            this.lblBalance.Location = new Point(20, 48);
+            this.lblBalance.Size = new Size(400, 25);
+            this.lblBalance.Text = $"💰 Баланс: {currentUser.Balance:N0} ₸";
 
             // btnLogout
             this.btnLogout.BackColor = Color.FromArgb(231, 76, 60);
@@ -79,6 +125,7 @@ namespace CinemaManagementSystem.Forms
             };
 
             this.headerPanel.Controls.Add(this.lblWelcome);
+            this.headerPanel.Controls.Add(this.lblBalance);
             this.headerPanel.Controls.Add(this.btnLogout);
 
             // TabControl
@@ -110,7 +157,7 @@ namespace CinemaManagementSystem.Forms
         {
             TabPage tab = new TabPage("🎥 Афиша фильмов");
 
-            // Главный контейнер с разделением
+            // Главный контейнер
             TableLayoutPanel mainLayout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -144,7 +191,7 @@ namespace CinemaManagementSystem.Forms
             // Правая панель - детали и сеансы
             Panel rightPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10) };
 
-            // Панель деталей фильма
+            // Панель деталей фильма с постером
             this.filmDetailsPanel.Location = new Point(10, 10);
             this.filmDetailsPanel.Size = new Size(480, 200);
             this.filmDetailsPanel.BackColor = Color.FromArgb(52, 73, 94);
@@ -207,8 +254,7 @@ namespace CinemaManagementSystem.Forms
             };
 
             this.dgvSessions.Location = new Point(10, 320);
-            this.dgvSessions.Size = new Size(480, 280);
-            this.dgvSessions.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
+            this.dgvSessions.Size = new Size(480, 220);
             this.dgvSessions.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             this.dgvSessions.MultiSelect = false;
             this.dgvSessions.ReadOnly = true;
@@ -217,13 +263,39 @@ namespace CinemaManagementSystem.Forms
             this.dgvSessions.BorderStyle = BorderStyle.None;
             this.dgvSessions.RowTemplate.Height = 35;
             this.dgvSessions.DoubleClick += dgvSessions_DoubleClick;
+            this.dgvSessions.SelectionChanged += dgvSessions_SelectionChanged;
 
             StyleDataGridView(this.dgvSessions);
+
+            // Кнопка КУПИТЬ БИЛЕТ
+            this.btnBuyTicket.Location = new Point(10, 550);
+            this.btnBuyTicket.Size = new Size(480, 50);
+            this.btnBuyTicket.Text = "🎫 КУПИТЬ БИЛЕТ";
+            this.btnBuyTicket.BackColor = Color.FromArgb(46, 204, 113);
+            this.btnBuyTicket.ForeColor = Color.White;
+            this.btnBuyTicket.FlatStyle = FlatStyle.Flat;
+            this.btnBuyTicket.Font = new Font("Segoe UI", 14F, FontStyle.Bold);
+            this.btnBuyTicket.Cursor = Cursors.Hand;
+            this.btnBuyTicket.Enabled = false;
+            this.btnBuyTicket.Click += btnBuyTicket_Click;
+
+            // Подсказка
+            Label lblHint = new Label
+            {
+                Text = "💡 Выберите сеанс и нажмите кнопку или дважды кликните по сеансу",
+                Location = new Point(10, 605),
+                Size = new Size(480, 20),
+                Font = new Font("Segoe UI", 8F, FontStyle.Italic),
+                ForeColor = Color.Gray,
+                TextAlign = ContentAlignment.MiddleCenter
+            };
 
             rightPanel.Controls.Add(this.filmDetailsPanel);
             rightPanel.Controls.Add(datePanel);
             rightPanel.Controls.Add(lblSessions);
             rightPanel.Controls.Add(this.dgvSessions);
+            rightPanel.Controls.Add(this.btnBuyTicket);
+            rightPanel.Controls.Add(lblHint);
 
             mainLayout.Controls.Add(leftPanel, 0, 0);
             mainLayout.Controls.Add(rightPanel, 1, 0);
@@ -277,7 +349,10 @@ namespace CinemaManagementSystem.Forms
             this.btnRefresh.FlatStyle = FlatStyle.Flat;
             this.btnRefresh.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
             this.btnRefresh.Cursor = Cursors.Hand;
-            this.btnRefresh.Click += (s, e) => LoadMyBookings();
+            this.btnRefresh.Click += (s, e) => {
+                LoadMyBookings();
+                UpdateBalanceDisplay();
+            };
 
             panel.Controls.Add(lblTitle);
             panel.Controls.Add(this.dgvMyBookings);
@@ -306,6 +381,20 @@ namespace CinemaManagementSystem.Forms
             dgv.GridColor = Color.FromArgb(224, 224, 224);
         }
 
+        private void UpdateBalanceDisplay()
+        {
+            try
+            {
+                decimal balance = authService.GetUserBalance(currentUser.Id);
+                currentUser.Balance = balance;
+                lblBalance.Text = $"💰 Баланс: {balance:N0} ₸";
+            }
+            catch
+            {
+                lblBalance.Text = $"💰 Баланс: {currentUser.Balance:N0} ₸";
+            }
+        }
+
         private void LoadData()
         {
             try
@@ -318,6 +407,91 @@ namespace CinemaManagementSystem.Forms
                 MessageBox.Show($"Ошибка загрузки данных: {ex.Message}",
                     "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        // ========== ЗАГРУЗКА ПОСТЕРА ==========
+        private Image LoadPoster(string filmName)
+        {
+            try
+            {
+                // Ищем точное совпадение
+                if (posterFiles.ContainsKey(filmName))
+                {
+                    string posterPath = Path.Combine(postersPath, posterFiles[filmName]);
+                    if (File.Exists(posterPath))
+                    {
+                        return Image.FromFile(posterPath);
+                    }
+                }
+
+                // Ищем частичное совпадение
+                foreach (var kvp in posterFiles)
+                {
+                    if (filmName.ToLower().Contains(kvp.Key.ToLower()) || 
+                        kvp.Key.ToLower().Contains(filmName.ToLower()))
+                    {
+                        string posterPath = Path.Combine(postersPath, kvp.Value);
+                        if (File.Exists(posterPath))
+                        {
+                            return Image.FromFile(posterPath);
+                        }
+                    }
+                }
+
+                // Ищем файл по имени фильма напрямую
+                string[] extensions = { ".jpg", ".jpeg", ".png", ".bmp", ".gif" };
+                foreach (string ext in extensions)
+                {
+                    string directPath = Path.Combine(postersPath, filmName + ext);
+                    if (File.Exists(directPath))
+                    {
+                        return Image.FromFile(directPath);
+                    }
+                }
+
+                // Ищем любой файл содержащий часть названия
+                if (Directory.Exists(postersPath))
+                {
+                    string[] files = Directory.GetFiles(postersPath);
+                    string searchName = filmName.ToLower().Replace(":", "").Replace(" ", "");
+                    
+                    foreach (string file in files)
+                    {
+                        string fileName = Path.GetFileNameWithoutExtension(file).ToLower().Replace(" ", "");
+                        if (fileName.Contains(searchName) || searchName.Contains(fileName))
+                        {
+                            return Image.FromFile(file);
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Игнорируем ошибки загрузки изображения
+            }
+
+            return null;
+        }
+
+        // Создание заглушки постера
+        private Image CreatePlaceholderPoster(int width, int height)
+        {
+            Bitmap placeholder = new Bitmap(width, height);
+            using (Graphics g = Graphics.FromImage(placeholder))
+            {
+                g.Clear(Color.FromArgb(52, 152, 219));
+                
+                using (Font font = new Font("Segoe UI", 40F))
+                using (Brush brush = new SolidBrush(Color.White))
+                {
+                    string text = "🎬";
+                    SizeF textSize = g.MeasureString(text, font);
+                    g.DrawString(text, font, brush, 
+                        (width - textSize.Width) / 2, 
+                        (height - textSize.Height) / 2);
+                }
+            }
+            return placeholder;
         }
 
         private void LoadFilms()
@@ -368,29 +542,33 @@ namespace CinemaManagementSystem.Forms
 
             Panel card = new Panel
             {
-                Size = new Size(740, 140),
+                Size = new Size(740, 160),
                 BackColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle,
                 Cursor = Cursors.Hand,
                 Tag = filmId
             };
 
-            // Постер (заглушка)
-            Panel posterPanel = new Panel
+            // ========== ПОСТЕР ФИЛЬМА ==========
+            PictureBox posterBox = new PictureBox
             {
-                Size = new Size(100, 120),
+                Size = new Size(100, 140),
                 Location = new Point(10, 10),
-                BackColor = Color.FromArgb(52, 152, 219)
+                SizeMode = PictureBoxSizeMode.Zoom,
+                BackColor = Color.FromArgb(52, 152, 219),
+                BorderStyle = BorderStyle.FixedSingle
             };
-            Label lblPoster = new Label
+
+            // Загружаем постер
+            Image poster = LoadPoster(title);
+            if (poster != null)
             {
-                Text = "🎬",
-                Font = new Font("Segoe UI", 40F),
-                ForeColor = Color.White,
-                TextAlign = ContentAlignment.MiddleCenter,
-                Dock = DockStyle.Fill
-            };
-            posterPanel.Controls.Add(lblPoster);
+                posterBox.Image = poster;
+            }
+            else
+            {
+                posterBox.Image = CreatePlaceholderPoster(100, 140);
+            }
 
             // Название фильма
             Label lblTitle = new Label
@@ -409,7 +587,7 @@ namespace CinemaManagementSystem.Forms
                 Text = $"🎭 {genre}  |  ⏱️ {duration} мин  |  {ageRating}",
                 Font = new Font("Segoe UI", 9F),
                 ForeColor = Color.Gray,
-                Location = new Point(120, 40),
+                Location = new Point(120, 42),
                 Size = new Size(600, 20)
             };
 
@@ -419,8 +597,8 @@ namespace CinemaManagementSystem.Forms
                 Text = description.Length > 150 ? description.Substring(0, 147) + "..." : description,
                 Font = new Font("Segoe UI", 9F),
                 ForeColor = Color.FromArgb(52, 73, 94),
-                Location = new Point(120, 65),
-                Size = new Size(600, 40),
+                Location = new Point(120, 68),
+                Size = new Size(500, 50),
                 AutoEllipsis = true
             };
 
@@ -428,8 +606,8 @@ namespace CinemaManagementSystem.Forms
             Button btnSelect = new Button
             {
                 Text = "Выбрать сеансы ➜",
-                Location = new Point(550, 105),
-                Size = new Size(170, 30),
+                Location = new Point(550, 120),
+                Size = new Size(170, 32),
                 BackColor = Color.FromArgb(46, 204, 113),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
@@ -441,7 +619,7 @@ namespace CinemaManagementSystem.Forms
                 SelectFilm(filmId, title, genre, duration, ageRating, description);
             };
 
-            card.Controls.Add(posterPanel);
+            card.Controls.Add(posterBox);
             card.Controls.Add(lblTitle);
             card.Controls.Add(lblInfo);
             card.Controls.Add(lblDescription);
@@ -450,6 +628,14 @@ namespace CinemaManagementSystem.Forms
             // При клике на карточку тоже выбирается фильм
             card.Click += (s, e) => {
                 SelectFilm(filmId, title, genre, duration, ageRating, description);
+            };
+
+            // Эффект при наведении
+            card.MouseEnter += (s, e) => {
+                card.BackColor = Color.FromArgb(245, 250, 255);
+            };
+            card.MouseLeave += (s, e) => {
+                card.BackColor = Color.White;
             };
 
             return card;
@@ -463,13 +649,25 @@ namespace CinemaManagementSystem.Forms
             filmDetailsPanel.Controls.Clear();
             filmDetailsPanel.Visible = true;
 
+            // Постер в панели деталей
+            PictureBox detailPoster = new PictureBox
+            {
+                Size = new Size(120, 170),
+                Location = new Point(10, 15),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                BorderStyle = BorderStyle.FixedSingle
+            };
+            
+            Image poster = LoadPoster(title);
+            detailPoster.Image = poster ?? CreatePlaceholderPoster(120, 170);
+
             Label lblDetailTitle = new Label
             {
                 Text = title,
-                Font = new Font("Segoe UI", 13F, FontStyle.Bold),
+                Font = new Font("Segoe UI", 12F, FontStyle.Bold),
                 ForeColor = Color.White,
-                Location = new Point(15, 15),
-                Size = new Size(450, 30),
+                Location = new Point(140, 15),
+                Size = new Size(330, 28),
                 AutoEllipsis = true
             };
 
@@ -478,20 +676,21 @@ namespace CinemaManagementSystem.Forms
                 Text = $"{genre}  •  {duration} мин  •  {ageRating}",
                 Font = new Font("Segoe UI", 9F),
                 ForeColor = Color.FromArgb(189, 195, 199),
-                Location = new Point(15, 50),
-                Size = new Size(450, 20)
+                Location = new Point(140, 45),
+                Size = new Size(330, 20)
             };
 
             Label lblDetailDescription = new Label
             {
-                Text = description,
+                Text = description.Length > 200 ? description.Substring(0, 197) + "..." : description,
                 Font = new Font("Segoe UI", 9F),
                 ForeColor = Color.White,
-                Location = new Point(15, 80),
-                Size = new Size(450, 100),
+                Location = new Point(140, 70),
+                Size = new Size(330, 115),
                 AutoEllipsis = true
             };
 
+            filmDetailsPanel.Controls.Add(detailPoster);
             filmDetailsPanel.Controls.Add(lblDetailTitle);
             filmDetailsPanel.Controls.Add(lblDetailInfo);
             filmDetailsPanel.Controls.Add(lblDetailDescription);
@@ -506,6 +705,7 @@ namespace CinemaManagementSystem.Forms
                 DataTable sessions = bookingService.GetSessionsForFilm(filmId, dtpSessionDate.Value);
                 dgvSessions.DataSource = sessions;
 
+                // Скрываем ненужные столбцы
                 if (dgvSessions.Columns.Contains("Код_сеанса"))
                     dgvSessions.Columns["Код_сеанса"].Visible = false;
                 if (dgvSessions.Columns.Contains("Номер_зала"))
@@ -513,10 +713,18 @@ namespace CinemaManagementSystem.Forms
                 if (dgvSessions.Columns.Contains("Количество_мест"))
                     dgvSessions.Columns["Количество_мест"].Visible = false;
 
+                // Отключаем кнопку если нет сеансов
+                btnBuyTicket.Enabled = sessions.Rows.Count > 0;
+
                 if (sessions.Rows.Count == 0)
                 {
-                    MessageBox.Show("На выбранную дату нет доступных сеансов!",
-                        "Информация", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    btnBuyTicket.Text = "🎫 НЕТ ДОСТУПНЫХ СЕАНСОВ";
+                    btnBuyTicket.BackColor = Color.FromArgb(149, 165, 166);
+                }
+                else
+                {
+                    btnBuyTicket.Text = "🎫 КУПИТЬ БИЛЕТ";
+                    btnBuyTicket.BackColor = Color.FromArgb(46, 204, 113);
                 }
             }
             catch (Exception ex)
@@ -526,28 +734,68 @@ namespace CinemaManagementSystem.Forms
             }
         }
 
+        private void dgvSessions_SelectionChanged(object sender, EventArgs e)
+        {
+            if (dgvSessions.SelectedRows.Count > 0)
+            {
+                int availableSeats = Convert.ToInt32(dgvSessions.SelectedRows[0].Cells["Свободных_мест"].Value);
+                decimal price = Convert.ToDecimal(dgvSessions.SelectedRows[0].Cells["Цена_билета"].Value);
+
+                if (availableSeats <= 0)
+                {
+                    btnBuyTicket.Text = "🎫 ВСЕ МЕСТА ЗАНЯТЫ";
+                    btnBuyTicket.BackColor = Color.FromArgb(231, 76, 60);
+                    btnBuyTicket.Enabled = false;
+                }
+                else
+                {
+                    btnBuyTicket.Text = $"🎫 КУПИТЬ БИЛЕТ ({price:N0} ₸)";
+                    btnBuyTicket.BackColor = Color.FromArgb(46, 204, 113);
+                    btnBuyTicket.Enabled = true;
+                }
+            }
+        }
+
+        private void btnBuyTicket_Click(object sender, EventArgs e)
+        {
+            OpenSeatSelection();
+        }
+
         private void dgvSessions_DoubleClick(object sender, EventArgs e)
         {
+            OpenSeatSelection();
+        }
+
+        private void OpenSeatSelection()
+        {
             if (dgvSessions.SelectedRows.Count == 0)
+            {
+                MessageBox.Show("Выберите сеанс из списка!", "Внимание",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
+            }
 
             int sessionId = Convert.ToInt32(dgvSessions.SelectedRows[0].Cells["Код_сеанса"].Value);
             int availableSeats = Convert.ToInt32(dgvSessions.SelectedRows[0].Cells["Свободных_мест"].Value);
 
             if (availableSeats <= 0)
             {
-                MessageBox.Show("К сожалению, все места заняты!", "Информация",
+                MessageBox.Show("К сожалению, все места на этот сеанс заняты!", "Информация",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
+            // Открываем окно выбора места
             SeatSelectionForm seatForm = new SeatSelectionForm(currentUser.Id, sessionId);
             if (seatForm.ShowDialog() == DialogResult.OK)
             {
-                MessageBox.Show("Билет успешно забронирован! 🎉", "Успех",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("🎉 Билет успешно куплен!\n\nПосмотреть билет можно во вкладке 'Мои бронирования'", 
+                    "Успех", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                
+                // Обновляем данные
                 LoadMyBookings();
                 LoadSessions(selectedFilmId);
+                UpdateBalanceDisplay();
             }
         }
 
@@ -564,7 +812,6 @@ namespace CinemaManagementSystem.Forms
                 // Раскрашиваем строки по статусу
                 foreach (DataGridViewRow row in dgvMyBookings.Rows)
                 {
-                    // ИСПРАВЛЕНИЕ: Добавлена проверка на null
                     if (row.Cells["Статус"].Value != null &&
                         row.Cells["Статус"].Value != DBNull.Value)
                     {
@@ -606,8 +853,11 @@ namespace CinemaManagementSystem.Forms
                 return;
             }
 
-            DialogResult result = MessageBox.Show("Вы уверены, что хотите отменить бронирование?",
-                "Подтверждение", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            decimal amount = Convert.ToDecimal(dgvMyBookings.SelectedRows[0].Cells["Сумма"].Value);
+
+            DialogResult result = MessageBox.Show(
+                $"Вы уверены, что хотите отменить бронирование?\n\nВам будет возвращено: {amount:N0} ₸",
+                "Подтверждение отмены", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
 
             if (result == DialogResult.Yes)
             {
@@ -618,9 +868,10 @@ namespace CinemaManagementSystem.Forms
 
                     if (success)
                     {
-                        MessageBox.Show("Бронирование успешно отменено!", "Успех",
-                            MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        MessageBox.Show($"Бронирование отменено!\n\nНа ваш баланс возвращено: {amount:N0} ₸", 
+                            "Успех", MessageBoxButtons.OK, MessageBoxIcon.Information);
                         LoadMyBookings();
+                        UpdateBalanceDisplay();
                     }
                     else
                     {

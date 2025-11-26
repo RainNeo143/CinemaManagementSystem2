@@ -23,6 +23,7 @@ namespace CinemaManagementSystem.Services
         /// </summary>
         public DataTable GetFilmRepertoire(DateTime? fromDate = null)
         {
+            // ИСПРАВЛЕНО: Используем таблицу Сеанс напрямую вместо Репертуар
             string query = @"
                 SELECT DISTINCT
                     f.Код_фильма,
@@ -34,8 +35,7 @@ namespace CinemaManagementSystem.Services
                 FROM Фильмы f
                 LEFT JOIN Жанры j ON f.Код_жанра = j.Код_жанра
                 JOIN Сеанс s ON f.Код_фильма = s.Код_фильма
-                JOIN Репертуар r ON s.Код_сеанса = r.Код_сеанса
-                WHERE r.Дата >= @ДатаС
+                WHERE s.Дата >= @ДатаС
                 ORDER BY f.Наименование";
 
             var parameter = new SqlParameter("@ДатаС", fromDate ?? DateTime.Today);
@@ -47,19 +47,19 @@ namespace CinemaManagementSystem.Services
         /// </summary>
         public DataTable GetSessionsForFilm(int filmId, DateTime? date = null)
         {
+            // ИСПРАВЛЕНО: Используем таблицу Сеанс напрямую
             string query = @"
                 SELECT 
                     s.Код_сеанса,
-                    r.Дата,
-                    r.Время_начала,
-                    r.Время_окончания,
-                    r.Цена_билета,
+                    s.Дата,
+                    s.Время_начала,
+                    s.Время_окончания,
+                    s.Цена_билета,
                     s.Номер_зала,
                     z.Наименование AS Зал,
                     z.Количество_мест,
                     z.Количество_мест - ISNULL(занятые.Занято, 0) AS Свободных_мест
                 FROM Сеанс s
-                JOIN Репертуар r ON s.Код_сеанса = r.Код_сеанса
                 JOIN Залы z ON s.Номер_зала = z.Номер_зала
                 LEFT JOIN (
                     SELECT Код_сеанса, COUNT(*) AS Занято
@@ -68,8 +68,8 @@ namespace CinemaManagementSystem.Services
                     GROUP BY Код_сеанса
                 ) занятые ON s.Код_сеанса = занятые.Код_сеанса
                 WHERE s.Код_фильма = @Код_фильма
-                  AND r.Дата >= @Дата
-                ORDER BY r.Дата, r.Время_начала";
+                  AND s.Дата >= @Дата
+                ORDER BY s.Дата, s.Время_начала";
 
             var parameters = new SqlParameter[]
             {
@@ -119,8 +119,35 @@ namespace CinemaManagementSystem.Services
         /// </summary>
         public DataTable GetAvailableSeats(int sessionId)
         {
-            var parameter = new SqlParameter("@Код_сеанса", sessionId);
-            return dbService.ExecuteStoredProcedure("ПолучитьСвободныеМеста", parameter);
+            try
+            {
+                var parameter = new SqlParameter("@Код_сеанса", sessionId);
+                return dbService.ExecuteStoredProcedure("ПолучитьСвободныеМеста", parameter);
+            }
+            catch
+            {
+                // Fallback на прямой запрос если процедура не существует
+                string query = @"
+                    SELECT 
+                        m.Ряд,
+                        m.Номер_места,
+                        m.Тип_места,
+                        CASE 
+                            WHEN b.Код_бронирования IS NOT NULL AND b.Статус != N'Отменено' THEN N'Занято'
+                            ELSE N'Свободно'
+                        END AS Статус_места
+                    FROM Места_в_залах m
+                    JOIN Сеанс s ON m.Номер_зала = s.Номер_зала
+                    LEFT JOIN Бронирования b ON s.Код_сеанса = b.Код_сеанса 
+                        AND m.Ряд = b.Ряд 
+                        AND m.Номер_места = b.Номер_места
+                        AND b.Статус != N'Отменено'
+                    WHERE s.Код_сеанса = @Код_сеанса
+                    ORDER BY m.Ряд, m.Номер_места";
+
+                var parameter = new SqlParameter("@Код_сеанса", sessionId);
+                return dbService.ExecuteQuery(query, parameter);
+            }
         }
 
         /// <summary>
@@ -128,7 +155,8 @@ namespace CinemaManagementSystem.Services
         /// </summary>
         public decimal GetTicketPrice(int sessionId, string seatType = "Обычное")
         {
-            string query = "SELECT Цена_билета FROM Репертуар WHERE Код_сеанса = @Код_сеанса";
+            // ИСПРАВЛЕНО: Используем таблицу Сеанс напрямую
+            string query = "SELECT Цена_билета FROM Сеанс WHERE Код_сеанса = @Код_сеанса";
             var parameter = new SqlParameter("@Код_сеанса", sessionId);
 
             object result = dbService.ExecuteScalar(query, parameter);
@@ -170,6 +198,11 @@ namespace CinemaManagementSystem.Services
                 }
 
                 return new BookingResult { Success = false, ErrorMessage = "Не удалось создать бронирование" };
+            }
+            catch (SqlException ex)
+            {
+                // Ловим ошибки из RAISERROR
+                return new BookingResult { Success = false, ErrorMessage = ex.Message };
             }
             catch (Exception ex)
             {
@@ -231,6 +264,7 @@ namespace CinemaManagementSystem.Services
 
         private TicketInfo GetTicketInfoDirect(int bookingId)
         {
+            // ИСПРАВЛЕНО: Используем Сеанс вместо Репертуар
             string query = @"
                 SELECT 
                     b.Код_бронирования,
@@ -239,9 +273,9 @@ namespace CinemaManagementSystem.Services
                     j.Наименование AS Жанр,
                     f.Длительность,
                     f.Возрастные_ограничения,
-                    r.Дата,
-                    r.Время_начала,
-                    r.Время_окончания,
+                    s.Дата,
+                    s.Время_начала,
+                    s.Время_окончания,
                     z.Наименование AS Зал,
                     b.Ряд,
                     b.Номер_места,
@@ -251,7 +285,6 @@ namespace CinemaManagementSystem.Services
                     p.ФИО AS Покупатель
                 FROM Бронирования b
                 JOIN Сеанс s ON b.Код_сеанса = s.Код_сеанса
-                JOIN Репертуар r ON s.Код_сеанса = r.Код_сеанса
                 JOIN Фильмы f ON s.Код_фильма = f.Код_фильма
                 LEFT JOIN Жанры j ON f.Код_жанра = j.Код_жанра
                 JOIN Залы z ON s.Номер_зала = z.Номер_зала
@@ -294,13 +327,14 @@ namespace CinemaManagementSystem.Services
         /// </summary>
         public DataTable GetUserBookings(int userId)
         {
+            // ИСПРАВЛЕНО: Используем Сеанс вместо Репертуар
             string query = @"
                 SELECT 
                     b.Код_бронирования,
                     ISNULL(b.Номер_билета, 'TICKET-' + CAST(b.Код_бронирования AS NVARCHAR)) AS Номер_билета,
                     f.Наименование AS Фильм,
-                    r.Дата,
-                    r.Время_начала,
+                    s.Дата,
+                    s.Время_начала,
                     z.Наименование AS Зал,
                     b.Ряд,
                     b.Номер_места,
@@ -309,11 +343,10 @@ namespace CinemaManagementSystem.Services
                     b.Дата_бронирования
                 FROM Бронирования b
                 INNER JOIN Сеанс s ON b.Код_сеанса = s.Код_сеанса
-                INNER JOIN Репертуар r ON s.Код_сеанса = r.Код_сеанса
                 INNER JOIN Фильмы f ON s.Код_фильма = f.Код_фильма
                 INNER JOIN Залы z ON s.Номер_зала = z.Номер_зала
                 WHERE b.Код_пользователя = @Код_пользователя
-                ORDER BY r.Дата DESC, r.Время_начала DESC";
+                ORDER BY s.Дата DESC, s.Время_начала DESC";
 
             var parameter = new SqlParameter("@Код_пользователя", userId);
             return dbService.ExecuteQuery(query, parameter);
@@ -346,21 +379,21 @@ namespace CinemaManagementSystem.Services
         /// </summary>
         public DataTable GetStatistics(DateTime? dateFrom = null, DateTime? dateTo = null)
         {
+            // ИСПРАВЛЕНО: Используем Сеанс вместо Репертуар
             string query = @"
                 SELECT 
                     f.Наименование AS Фильм,
                     COUNT(b.Код_бронирования) AS Количество_бронирований,
                     SUM(b.Сумма) AS Общая_сумма,
                     AVG(CAST(b.Сумма AS FLOAT)) AS Средняя_цена,
-                    r.Дата
+                    s.Дата
                 FROM Фильмы f
                 JOIN Сеанс s ON f.Код_фильма = s.Код_фильма
-                JOIN Репертуар r ON s.Код_сеанса = r.Код_сеанса
                 LEFT JOIN Бронирования b ON s.Код_сеанса = b.Код_сеанса AND b.Статус != N'Отменено'
-                WHERE (@ДатаС IS NULL OR r.Дата >= @ДатаС)
-                  AND (@ДатаПо IS NULL OR r.Дата <= @ДатаПо)
-                GROUP BY f.Наименование, r.Дата
-                ORDER BY r.Дата DESC, Количество_бронирований DESC";
+                WHERE (@ДатаС IS NULL OR s.Дата >= @ДатаС)
+                  AND (@ДатаПо IS NULL OR s.Дата <= @ДатаПо)
+                GROUP BY f.Наименование, s.Дата
+                ORDER BY s.Дата DESC, Количество_бронирований DESC";
 
             var parameters = new SqlParameter[]
             {
