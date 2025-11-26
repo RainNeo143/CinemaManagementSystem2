@@ -75,6 +75,7 @@
     <Compile Include="Forms\SeatSelectionForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Models\Ticketservice.cs" />
     <Compile Include="Models\User.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

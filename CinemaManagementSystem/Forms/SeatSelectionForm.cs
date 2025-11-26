@@ -2,6 +2,7 @@
 using System.Data;
 using System.Drawing;
 using System.Windows.Forms;
+using CinemaManagementSystem.Models;
 using CinemaManagementSystem.Services;
 
 namespace CinemaManagementSystem.Forms
@@ -11,22 +12,31 @@ namespace CinemaManagementSystem.Forms
         private readonly int userId;
         private readonly int sessionId;
         private readonly BookingService bookingService;
+        private readonly TicketService ticketService;
+        private readonly AuthService authService;
         private Panel seatPanel;
         private Button selectedSeatButton;
         private Label lblInfo;
         private Label lblSelectedInfo;
+        private Label lblBalance;
         private Button btnConfirm;
         private Button btnCancel;
         private Panel legendPanel;
         private decimal ticketPrice = 0;
+        private decimal userBalance = 0;
         private string selectedSeatType = "";
+
+        public int LastBookingId { get; private set; }
 
         public SeatSelectionForm(int userId, int sessionId)
         {
             this.userId = userId;
             this.sessionId = sessionId;
             this.bookingService = new BookingService();
+            this.ticketService = new TicketService();
+            this.authService = new AuthService();
             InitializeComponent();
+            LoadUserBalance();
             LoadSeats();
         }
 
@@ -35,6 +45,7 @@ namespace CinemaManagementSystem.Forms
             this.seatPanel = new Panel();
             this.lblInfo = new Label();
             this.lblSelectedInfo = new Label();
+            this.lblBalance = new Label();
             this.btnConfirm = new Button();
             this.btnCancel = new Button();
             this.legendPanel = new Panel();
@@ -45,19 +56,27 @@ namespace CinemaManagementSystem.Forms
             this.lblInfo.Font = new Font("Segoe UI", 12F, FontStyle.Bold);
             this.lblInfo.ForeColor = Color.FromArgb(52, 73, 94);
             this.lblInfo.Location = new Point(20, 15);
-            this.lblInfo.Size = new Size(900, 30);
+            this.lblInfo.Size = new Size(600, 30);
             this.lblInfo.Text = "🎬 Выберите место в зале";
+
+            // lblBalance
+            this.lblBalance.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
+            this.lblBalance.ForeColor = Color.FromArgb(46, 204, 113);
+            this.lblBalance.Location = new Point(700, 15);
+            this.lblBalance.Size = new Size(220, 30);
+            this.lblBalance.TextAlign = ContentAlignment.MiddleRight;
+            this.lblBalance.Text = "💰 Баланс: 0 ₸";
 
             // legendPanel - легенда
             this.legendPanel.Location = new Point(20, 50);
-            this.legendPanel.Size = new Size(900, 45);
+            this.legendPanel.Size = new Size(900, 50);
             this.legendPanel.BackColor = Color.White;
             this.legendPanel.BorderStyle = BorderStyle.FixedSingle;
 
             CreateLegend();
 
             // seatPanel
-            this.seatPanel.Location = new Point(20, 105);
+            this.seatPanel.Location = new Point(20, 110);
             this.seatPanel.Size = new Size(900, 450);
             this.seatPanel.AutoScroll = true;
             this.seatPanel.BackColor = Color.FromArgb(236, 240, 241);
@@ -66,14 +85,14 @@ namespace CinemaManagementSystem.Forms
             // lblSelectedInfo
             this.lblSelectedInfo.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
             this.lblSelectedInfo.ForeColor = Color.FromArgb(41, 128, 185);
-            this.lblSelectedInfo.Location = new Point(20, 565);
+            this.lblSelectedInfo.Location = new Point(20, 570);
             this.lblSelectedInfo.Size = new Size(600, 30);
             this.lblSelectedInfo.Text = "Место не выбрано";
 
             // btnConfirm
-            this.btnConfirm.Location = new Point(650, 560);
-            this.btnConfirm.Size = new Size(130, 40);
-            this.btnConfirm.Text = "✓ Забронировать";
+            this.btnConfirm.Location = new Point(640, 565);
+            this.btnConfirm.Size = new Size(140, 40);
+            this.btnConfirm.Text = "💳 Купить билет";
             this.btnConfirm.BackColor = Color.FromArgb(46, 204, 113);
             this.btnConfirm.ForeColor = Color.White;
             this.btnConfirm.FlatStyle = FlatStyle.Flat;
@@ -83,7 +102,7 @@ namespace CinemaManagementSystem.Forms
             this.btnConfirm.Click += btnConfirm_Click;
 
             // btnCancel
-            this.btnCancel.Location = new Point(790, 560);
+            this.btnCancel.Location = new Point(790, 565);
             this.btnCancel.Size = new Size(130, 40);
             this.btnCancel.Text = "✕ Отмена";
             this.btnCancel.BackColor = Color.FromArgb(149, 165, 166);
@@ -100,6 +119,7 @@ namespace CinemaManagementSystem.Forms
             this.ClientSize = new Size(940, 620);
             this.BackColor = Color.White;
             this.Controls.Add(this.lblInfo);
+            this.Controls.Add(this.lblBalance);
             this.Controls.Add(this.legendPanel);
             this.Controls.Add(this.seatPanel);
             this.Controls.Add(this.lblSelectedInfo);
@@ -110,7 +130,7 @@ namespace CinemaManagementSystem.Forms
             this.MinimizeBox = false;
             this.Name = "SeatSelectionForm";
             this.StartPosition = FormStartPosition.CenterParent;
-            this.Text = "Выбор места";
+            this.Text = "Выбор места и покупка билета";
             this.Icon = SystemIcons.Information;
             this.ResumeLayout(false);
         }
@@ -119,32 +139,39 @@ namespace CinemaManagementSystem.Forms
         {
             int xPos = 20;
 
-            // Свободное обычное место
-            Panel box1 = CreateLegendBox(Color.FromArgb(46, 204, 113), xPos);
+            // Свободное обычное место (серое)
+            Panel box1 = CreateLegendBox(Color.FromArgb(189, 195, 199), xPos);
             Label lbl1 = CreateLegendLabel("Свободно", xPos + 35);
             legendPanel.Controls.Add(box1);
             legendPanel.Controls.Add(lbl1);
-            xPos += 150;
+            xPos += 130;
 
-            // VIP место
+            // VIP место (золотое)
             Panel box2 = CreateLegendBox(Color.Gold, xPos);
             Label lbl2 = CreateLegendLabel("VIP", xPos + 35);
             legendPanel.Controls.Add(box2);
             legendPanel.Controls.Add(lbl2);
-            xPos += 120;
+            xPos += 80;
 
-            // Занятое место
-            Panel box3 = CreateLegendBox(Color.FromArgb(189, 195, 199), xPos);
+            // Занятое место (красное)
+            Panel box3 = CreateLegendBox(Color.FromArgb(231, 76, 60), xPos);
             Label lbl3 = CreateLegendLabel("Занято", xPos + 35);
             legendPanel.Controls.Add(box3);
             legendPanel.Controls.Add(lbl3);
-            xPos += 130;
+            xPos += 110;
 
-            // Выбранное место
-            Panel box4 = CreateLegendBox(Color.FromArgb(52, 152, 219), xPos);
-            Label lbl4 = CreateLegendLabel("Выбрано", xPos + 35);
+            // Моё бронирование (зелёное)
+            Panel box4 = CreateLegendBox(Color.FromArgb(46, 204, 113), xPos);
+            Label lbl4 = CreateLegendLabel("Моё", xPos + 35);
             legendPanel.Controls.Add(box4);
             legendPanel.Controls.Add(lbl4);
+            xPos += 90;
+
+            // Выбранное место (синее)
+            Panel box5 = CreateLegendBox(Color.FromArgb(52, 152, 219), xPos);
+            Label lbl5 = CreateLegendLabel("Выбрано", xPos + 35);
+            legendPanel.Controls.Add(box5);
+            legendPanel.Controls.Add(lbl5);
         }
 
         private Panel CreateLegendBox(Color color, int x)
@@ -152,7 +179,7 @@ namespace CinemaManagementSystem.Forms
             return new Panel
             {
                 Size = new Size(25, 25),
-                Location = new Point(x, 10),
+                Location = new Point(x, 12),
                 BackColor = color,
                 BorderStyle = BorderStyle.FixedSingle
             };
@@ -163,17 +190,31 @@ namespace CinemaManagementSystem.Forms
             return new Label
             {
                 Text = text,
-                Location = new Point(x, 13),
-                Size = new Size(100, 20),
+                Location = new Point(x, 15),
+                Size = new Size(80, 20),
                 Font = new Font("Segoe UI", 9F)
             };
+        }
+
+        private void LoadUserBalance()
+        {
+            try
+            {
+                userBalance = authService.GetUserBalance(userId);
+                lblBalance.Text = $"💰 Баланс: {userBalance:N0} ₸";
+            }
+            catch
+            {
+                userBalance = 20000;
+                lblBalance.Text = $"💰 Баланс: {userBalance:N0} ₸";
+            }
         }
 
         private void LoadSeats()
         {
             try
             {
-                DataTable seats = bookingService.GetAvailableSeats(sessionId);
+                DataTable seats = bookingService.GetAvailableSeatsWithUserBookings(sessionId, userId);
 
                 if (seats.Rows.Count == 0)
                 {
@@ -183,15 +224,8 @@ namespace CinemaManagementSystem.Forms
                     return;
                 }
 
-                // Получаем цену билета
-                string priceQuery = "SELECT Цена_билета FROM Сеанс WHERE Код_сеанса = @Код_сеанса";
-                var dbService = new DatabaseService();
-                var param = new System.Data.SqlClient.SqlParameter("@Код_сеанса", sessionId);
-                DataTable priceResult = dbService.ExecuteQuery(priceQuery, param);
-                if (priceResult.Rows.Count > 0)
-                {
-                    ticketPrice = Convert.ToDecimal(priceResult.Rows[0]["Цена_билета"]);
-                }
+                // Получаем базовую цену билета
+                ticketPrice = bookingService.GetTicketPrice(sessionId);
 
                 int maxRow = 0;
                 int maxSeat = 0;
@@ -210,10 +244,11 @@ namespace CinemaManagementSystem.Forms
                 int verticalSpacing = 10;
 
                 // Создаем экран
+                int screenWidth = Math.Min(maxSeat * (seatWidth + horizontalSpacing), 850);
                 Panel screen = new Panel
                 {
-                    Location = new Point((900 - (maxSeat * (seatWidth + horizontalSpacing))) / 2, 20),
-                    Size = new Size(maxSeat * (seatWidth + horizontalSpacing), 40),
+                    Location = new Point((900 - screenWidth) / 2, 20),
+                    Size = new Size(screenWidth, 40),
                     BackColor = Color.FromArgb(52, 73, 94)
                 };
                 Label lblScreen = new Label
@@ -229,13 +264,14 @@ namespace CinemaManagementSystem.Forms
 
                 // Создаем кнопки для мест
                 int startX = (900 - (maxSeat * (seatWidth + horizontalSpacing))) / 2;
+                if (startX < 80) startX = 80;
 
                 foreach (DataRow row in seats.Rows)
                 {
                     int rowNum = Convert.ToInt32(row["Ряд"]);
                     int seatNum = Convert.ToInt32(row["Номер_места"]);
                     string status = row["Статус_места"].ToString();
-                    string seatType = row["Тип_места"].ToString();
+                    string seatType = row["Тип_места"] != DBNull.Value ? row["Тип_места"].ToString() : "Обычное";
 
                     Button seatButton = new Button
                     {
@@ -245,7 +281,7 @@ namespace CinemaManagementSystem.Forms
                             75 + rowNum * (seatHeight + verticalSpacing)
                         ),
                         Text = seatNum.ToString(),
-                        Tag = $"{rowNum}|{seatNum}|{seatType}",
+                        Tag = $"{rowNum}|{seatNum}|{seatType}|{status}",
                         Font = new Font("Segoe UI", 10F, FontStyle.Bold),
                         FlatStyle = FlatStyle.Flat,
                         Cursor = Cursors.Hand
@@ -254,21 +290,49 @@ namespace CinemaManagementSystem.Forms
                     seatButton.FlatAppearance.BorderSize = 2;
                     seatButton.FlatAppearance.BorderColor = Color.FromArgb(52, 73, 94);
 
+                    // Устанавливаем цвет в зависимости от статуса
                     if (status == "Занято")
                     {
-                        seatButton.BackColor = Color.FromArgb(189, 195, 199);
+                        // Красный - занято другими
+                        seatButton.BackColor = Color.FromArgb(231, 76, 60);
                         seatButton.ForeColor = Color.White;
                         seatButton.Enabled = false;
                         seatButton.Cursor = Cursors.No;
                         seatButton.Text = "✕";
                     }
+                    else if (status == "МоёБронирование")
+                    {
+                        // Зелёный - моё бронирование
+                        seatButton.BackColor = Color.FromArgb(46, 204, 113);
+                        seatButton.ForeColor = Color.White;
+                        seatButton.Enabled = false;
+                        seatButton.Cursor = Cursors.Default;
+                        seatButton.Text = "✓";
+
+                        // Добавляем подсказку
+                        ToolTip tip = new ToolTip();
+                        tip.SetToolTip(seatButton, "Это место уже забронировано вами");
+                    }
                     else
                     {
-                        seatButton.BackColor = seatType == "VIP" ? Color.Gold : Color.FromArgb(46, 204, 113);
-                        seatButton.ForeColor = seatType == "VIP" ? Color.FromArgb(52, 73, 94) : Color.White;
+                        // Свободное место
+                        if (seatType == "VIP")
+                        {
+                            // Золотой для VIP
+                            seatButton.BackColor = Color.Gold;
+                            seatButton.ForeColor = Color.FromArgb(52, 73, 94);
+                        }
+                        else
+                        {
+                            // Серый для обычных свободных мест
+                            seatButton.BackColor = Color.FromArgb(189, 195, 199);
+                            seatButton.ForeColor = Color.FromArgb(52, 73, 94);
+                        }
+
                         seatButton.Click += SeatButton_Click;
 
                         // Эффект наведения
+                        string localSeatType = seatType; // Для замыкания
                         seatButton.MouseEnter += (s, e) => {
                             if (seatButton != selectedSeatButton)
                             {
@@ -279,8 +343,16 @@ namespace CinemaManagementSystem.Forms
                         seatButton.MouseLeave += (s, e) => {
                             if (seatButton != selectedSeatButton)
                             {
-                                seatButton.BackColor = seatType == "VIP" ? Color.Gold : Color.FromArgb(46, 204, 113);
-                                seatButton.ForeColor = seatType == "VIP" ? Color.FromArgb(52, 73, 94) : Color.White;
+                                if (localSeatType == "VIP")
+                                {
+                                    seatButton.BackColor = Color.Gold;
+                                    seatButton.ForeColor = Color.FromArgb(52, 73, 94);
+                                }
+                                else
+                                {
+                                    seatButton.BackColor = Color.FromArgb(189, 195, 199);
+                                    seatButton.ForeColor = Color.FromArgb(52, 73, 94);
+                                }
                             }
                         };
                     }
@@ -320,8 +392,16 @@ namespace CinemaManagementSystem.Forms
             {
                 string oldInfo = selectedSeatButton.Tag.ToString();
                 string oldType = oldInfo.Split('|')[2];
-                selectedSeatButton.BackColor = oldType == "VIP" ? Color.Gold : Color.FromArgb(46, 204, 113);
-                selectedSeatButton.ForeColor = oldType == "VIP" ? Color.FromArgb(52, 73, 94) : Color.White;
+                if (oldType == "VIP")
+                {
+                    selectedSeatButton.BackColor = Color.Gold;
+                    selectedSeatButton.ForeColor = Color.FromArgb(52, 73, 94);
+                }
+                else
+                {
+                    selectedSeatButton.BackColor = Color.FromArgb(189, 195, 199);
+                    selectedSeatButton.ForeColor = Color.FromArgb(52, 73, 94);
+                }
             }
 
             // Выбираем новое место
@@ -336,8 +416,22 @@ namespace CinemaManagementSystem.Forms
 
             decimal price = selectedSeatType == "VIP" ? ticketPrice * 1.5m : ticketPrice;
 
-            lblSelectedInfo.Text = $"✓ Выбрано: Ряд {row}, Место {seatNumber} ({selectedSeatType})  |  Цена: {price:N0} тг";
-            btnConfirm.Enabled = true;
+            lblSelectedInfo.Text = $"✓ Выбрано: Ряд {row}, Место {seatNumber} ({selectedSeatType})  |  Цена: {price:N0} ₸";
+
+            // Проверяем достаточно ли средств
+            if (price > userBalance)
+            {
+                lblSelectedInfo.ForeColor = Color.FromArgb(231, 76, 60);
+                lblSelectedInfo.Text += "  ⚠️ Недостаточно средств!";
+                btnConfirm.Enabled = false;
+                btnConfirm.BackColor = Color.FromArgb(149, 165, 166);
+            }
+            else
+            {
+                lblSelectedInfo.ForeColor = Color.FromArgb(41, 128, 185);
+                btnConfirm.Enabled = true;
+                btnConfirm.BackColor = Color.FromArgb(46, 204, 113);
+            }
         }
 
         private void btnConfirm_Click(object sender, EventArgs e)
@@ -354,33 +448,75 @@ namespace CinemaManagementSystem.Forms
                 string[] seatInfo = selectedSeatButton.Tag.ToString().Split('|');
                 int row = int.Parse(seatInfo[0]);
                 int seatNumber = int.Parse(seatInfo[1]);
+                decimal price = selectedSeatType == "VIP" ? ticketPrice * 1.5m : ticketPrice;
 
                 DialogResult confirm = MessageBox.Show(
-                    $"Подтвердить бронирование?\n\nРяд: {row}\nМесто: {seatNumber}\nТип: {selectedSeatType}\nЦена: {(selectedSeatType == "VIP" ? ticketPrice * 1.5m : ticketPrice):N0} тг",
-                    "Подтверждение бронирования",
+                    $"Подтвердить покупку билета?\n\n" +
+                    $"Ряд: {row}\n" +
+                    $"Место: {seatNumber}\n" +
+                    $"Тип: {selectedSeatType}\n" +
+                    $"Цена: {price:N0} ₸\n\n" +
+                    $"Ваш баланс: {userBalance:N0} ₸\n" +
+                    $"После покупки: {userBalance - price:N0} ₸",
+                    "Подтверждение покупки",
                     MessageBoxButtons.YesNo,
                     MessageBoxIcon.Question
                 );
 
                 if (confirm == DialogResult.Yes)
                 {
-                    int bookingId = bookingService.BookTicket(userId, sessionId, row, seatNumber);
+                    // Выполняем бронирование с оплатой
+                    BookingResult result = bookingService.BookAndPayTicket(userId, sessionId, row, seatNumber);
 
-                    if (bookingId > 0)
+                    if (result.Success)
                     {
+                        LastBookingId = result.BookingId;
+
+                        // Получаем информацию о билете
+                        TicketInfo ticketInfo = bookingService.GetTicketInfo(result.BookingId);
+
+                        if (ticketInfo != null)
+                        {
+                            // Показываем успешное сообщение с предложением сохранить билет
+                            DialogResult saveResult = MessageBox.Show(
+                                $"🎉 Билет успешно куплен!\n\n" +
+                                $"Номер билета: {result.TicketNumber}\n" +
+                                $"Списано: {result.Amount:N0} ₸\n\n" +
+                                $"Хотите сохранить билет?",
+                                "Покупка успешна",
+                                MessageBoxButtons.YesNo,
+                                MessageBoxIcon.Information
+                            );
+
+                            if (saveResult == DialogResult.Yes)
+                            {
+                                // Показываем превью и возможность сохранить
+                                ticketService.ShowTicketPreview(ticketInfo);
+                            }
+                        }
+                        else
+                        {
+                            MessageBox.Show(
+                                $"🎉 Билет успешно куплен!\n\nНомер билета: {result.TicketNumber}",
+                                "Покупка успешна",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Information
+                            );
+                        }
+
                         this.DialogResult = DialogResult.OK;
                         this.Close();
                     }
                     else
                     {
-                        MessageBox.Show("Не удалось забронировать билет! Возможно, место уже занято.",
+                        MessageBox.Show($"Ошибка покупки: {result.ErrorMessage}",
                             "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Ошибка бронирования: {ex.Message}", "Ошибка",
+                MessageBox.Show($"Ошибка: {ex.Message}", "Ошибка",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }

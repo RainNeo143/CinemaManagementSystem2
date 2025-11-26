@@ -44,7 +44,8 @@ namespace CinemaManagementSystem.Services
                         Login = row["Логин"].ToString(),
                         Role = row["Роль"].ToString(),
                         FullName = row["ФИО"].ToString(),
-                        Email = row["Email"].ToString()
+                        Email = row["Email"] != DBNull.Value ? row["Email"].ToString() : "",
+                        Balance = row["Баланс"] != DBNull.Value ? Convert.ToDecimal(row["Баланс"]) : 20000.00m
                     };
                 }
 
@@ -93,6 +94,69 @@ namespace CinemaManagementSystem.Services
 
             int count = Convert.ToInt32(dbService.ExecuteScalar(query, parameter));
             return count > 0;
+        }
+
+        /// <summary>
+        /// Получение баланса пользователя
+        /// </summary>
+        public decimal GetUserBalance(int userId)
+        {
+            try
+            {
+                var parameter = new SqlParameter("@Код_пользователя", userId);
+                DataTable result = dbService.ExecuteStoredProcedure("ПолучитьБаланс", parameter);
+
+                if (result.Rows.Count > 0 && result.Rows[0]["Баланс"] != DBNull.Value)
+                {
+                    return Convert.ToDecimal(result.Rows[0]["Баланс"]);
+                }
+
+                return 0;
+            }
+            catch
+            {
+                // Если процедура не существует, используем прямой запрос
+                string query = "SELECT Баланс FROM Пользователи WHERE Код_пользователя = @Код_пользователя";
+                var parameter = new SqlParameter("@Код_пользователя", userId);
+                object result = dbService.ExecuteScalar(query, parameter);
+                return result != null && result != DBNull.Value ? Convert.ToDecimal(result) : 20000.00m;
+            }
+        }
+
+        /// <summary>
+        /// Пополнение баланса
+        /// </summary>
+        public decimal TopUpBalance(int userId, decimal amount)
+        {
+            try
+            {
+                var parameters = new SqlParameter[]
+                {
+                    new SqlParameter("@Код_пользователя", userId),
+                    new SqlParameter("@Сумма", amount)
+                };
+
+                DataTable result = dbService.ExecuteStoredProcedure("ПополнитьБаланс", parameters);
+
+                if (result.Rows.Count > 0 && result.Rows[0]["Баланс"] != DBNull.Value)
+                {
+                    return Convert.ToDecimal(result.Rows[0]["Баланс"]);
+                }
+
+                return GetUserBalance(userId);
+            }
+            catch
+            {
+                // Если процедура не существует, используем прямой запрос
+                string query = "UPDATE Пользователи SET Баланс = Баланс + @Сумма WHERE Код_пользователя = @Код_пользователя; SELECT Баланс FROM Пользователи WHERE Код_пользователя = @Код_пользователя";
+                var parameters = new SqlParameter[]
+                {
+                    new SqlParameter("@Код_пользователя", userId),
+                    new SqlParameter("@Сумма", amount)
+                };
+                object result = dbService.ExecuteScalar(query, parameters);
+                return result != null && result != DBNull.Value ? Convert.ToDecimal(result) : 0;
+            }
         }
     }
 }

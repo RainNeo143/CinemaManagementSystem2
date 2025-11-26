@@ -15,6 +15,7 @@ namespace CinemaManagementSystem.Models
         public string Phone { get; set; }
         public DateTime RegistrationDate { get; set; }
         public bool IsActive { get; set; }
+        public decimal Balance { get; set; } = 20000.00m; // Начальный баланс
 
         /// <summary>
         /// Проверка, является ли пользователь администратором
@@ -74,6 +75,8 @@ namespace CinemaManagementSystem.Models
         public DateTime BookingDate { get; set; }
         public string Status { get; set; }
         public decimal Amount { get; set; }
+        public string TicketNumber { get; set; }
+        public bool IsPaid { get; set; }
 
         // Дополнительная информация для отображения
         public string FilmTitle { get; set; }
@@ -93,5 +96,28 @@ namespace CinemaManagementSystem.Models
         public int SeatNumber { get; set; }
         public string SeatType { get; set; }
         public bool IsOccupied { get; set; }
+    }
+
+    /// <summary>
+    /// Модель информации о билете для печати
+    /// </summary>
+    public class TicketInfo
+    {
+        public int BookingId { get; set; }
+        public string TicketNumber { get; set; }
+        public string FilmTitle { get; set; }
+        public string Genre { get; set; }
+        public int Duration { get; set; }
+        public string AgeRating { get; set; }
+        public DateTime SessionDate { get; set; }
+        public TimeSpan StartTime { get; set; }
+        public TimeSpan EndTime { get; set; }
+        public string HallName { get; set; }
+        public int Row { get; set; }
+        public int SeatNumber { get; set; }
+        public string SeatType { get; set; }
+        public decimal Amount { get; set; }
+        public DateTime BookingDate { get; set; }
+        public string BuyerName { get; set; }
     }
 }
