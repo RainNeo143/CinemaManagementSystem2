@@ -52,17 +52,16 @@ namespace CinemaManagementSystem.Forms
             currentUser = user;
             bookingService = new BookingService();
             authService = new AuthService();
-            
-            // Определяем путь к папке с постерами
-            string appPath = AppDomain.CurrentDomain.BaseDirectory;
-            postersPath = Path.Combine(appPath, "Posters");
-            
+
+            // ИЗМЕНИТЬ ЭТУ СТРОКУ:
+            postersPath = @"D:\Постеры";
+
             // Создаём папку если её нет
             if (!Directory.Exists(postersPath))
             {
                 Directory.CreateDirectory(postersPath);
             }
-            
+
             InitializeComponent();
             LoadData();
             UpdateBalanceDisplay();

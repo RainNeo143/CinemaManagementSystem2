@@ -70,12 +70,11 @@ namespace CinemaManagementSystem.Forms
             this.lblBalance.TextAlign = ContentAlignment.MiddleRight;
             this.lblBalance.Text = "💰 Баланс: 0 ₸";
 
-            // legendPanel - легенда
+            // legendPanel
             this.legendPanel.Location = new Point(20, 50);
             this.legendPanel.Size = new Size(900, 50);
             this.legendPanel.BackColor = Color.White;
             this.legendPanel.BorderStyle = BorderStyle.FixedSingle;
-
             CreateLegend();
 
             // seatPanel
@@ -118,7 +117,7 @@ namespace CinemaManagementSystem.Forms
                 this.Close();
             };
 
-            // SeatSelectionForm
+            // Form
             this.ClientSize = new Size(940, 620);
             this.BackColor = Color.White;
             this.Controls.Add(this.lblInfo);
@@ -142,35 +141,30 @@ namespace CinemaManagementSystem.Forms
         {
             int xPos = 20;
 
-            // Свободное обычное место (серое)
             Panel box1 = CreateLegendBox(Color.FromArgb(189, 195, 199), xPos);
             Label lbl1 = CreateLegendLabel("Свободно", xPos + 35);
             legendPanel.Controls.Add(box1);
             legendPanel.Controls.Add(lbl1);
             xPos += 130;
 
-            // VIP место (золотое)
             Panel box2 = CreateLegendBox(Color.Gold, xPos);
             Label lbl2 = CreateLegendLabel("VIP", xPos + 35);
             legendPanel.Controls.Add(box2);
             legendPanel.Controls.Add(lbl2);
             xPos += 80;
 
-            // Занятое место (красное)
             Panel box3 = CreateLegendBox(Color.FromArgb(231, 76, 60), xPos);
             Label lbl3 = CreateLegendLabel("Занято", xPos + 35);
             legendPanel.Controls.Add(box3);
             legendPanel.Controls.Add(lbl3);
             xPos += 110;
 
-            // Моё бронирование (зелёное)
             Panel box4 = CreateLegendBox(Color.FromArgb(46, 204, 113), xPos);
             Label lbl4 = CreateLegendLabel("Моё", xPos + 35);
             legendPanel.Controls.Add(box4);
             legendPanel.Controls.Add(lbl4);
             xPos += 90;
 
-            // Выбранное место (синее)
             Panel box5 = CreateLegendBox(Color.FromArgb(52, 152, 219), xPos);
             Label lbl5 = CreateLegendLabel("Выбрано", xPos + 35);
             legendPanel.Controls.Add(box5);
@@ -229,11 +223,11 @@ namespace CinemaManagementSystem.Forms
         {
             try
             {
+                // ИСПРАВЛЕНО: Используем правильный метод с учетом бронирований пользователя
                 DataTable seats = bookingService.GetAvailableSeatsWithUserBookings(sessionId, userId);
 
                 if (seats.Rows.Count == 0)
                 {
-                    // Если нет мест в таблице Места_в_залах, создаём виртуальные
                     CreateVirtualSeats();
                     return;
                 }
@@ -259,18 +253,127 @@ namespace CinemaManagementSystem.Forms
             }
         }
 
-        private void CreateVirtualSeats()
+        private void CreateSeatsFromData(DataTable seats, int maxRow, int maxSeat)
         {
-            // Создаём виртуальный зал 8x10
-            int rows = 8;
-            int seatsPerRow = 10;
-
             int seatWidth = 45;
             int seatHeight = 40;
             int horizontalSpacing = 10;
             int verticalSpacing = 10;
 
-            // Создаем экран
+            // Экран
+            int screenWidth = Math.Min(maxSeat * (seatWidth + horizontalSpacing), 850);
+            Panel screen = new Panel
+            {
+                Location = new Point((900 - screenWidth) / 2, 20),
+                Size = new Size(screenWidth, 40),
+                BackColor = Color.FromArgb(52, 73, 94)
+            };
+            Label lblScreen = new Label
+            {
+                Text = "🎬 ЭКРАН",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font = new Font("Segoe UI", 14F, FontStyle.Bold),
+                ForeColor = Color.White
+            };
+            screen.Controls.Add(lblScreen);
+            seatPanel.Controls.Add(screen);
+
+            int startX = (900 - (maxSeat * (seatWidth + horizontalSpacing))) / 2;
+            if (startX < 80) startX = 80;
+
+            // ИСПРАВЛЕНО: Правильная обработка статуса мест
+            foreach (DataRow row in seats.Rows)
+            {
+                int rowNum = Convert.ToInt32(row["Ряд"]);
+                int seatNum = Convert.ToInt32(row["Номер_места"]);
+                string status = row["Статус_места"].ToString();
+                string seatType = row["Тип_места"] != DBNull.Value ? row["Тип_места"].ToString() : "Обычное";
+
+                Button seatButton = new Button
+                {
+                    Size = new Size(seatWidth, seatHeight),
+                    Location = new Point(
+                        startX + (seatNum - 1) * (seatWidth + horizontalSpacing),
+                        75 + rowNum * (seatHeight + verticalSpacing)
+                    ),
+                    Text = seatNum.ToString(),
+                    Tag = $"{rowNum}|{seatNum}|{seatType}|{status}",
+                    Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                    FlatStyle = FlatStyle.Flat,
+                    Cursor = Cursors.Hand
+                };
+
+                seatButton.FlatAppearance.BorderSize = 2;
+                seatButton.FlatAppearance.BorderColor = Color.FromArgb(52, 73, 94);
+
+                // ИСПРАВЛЕНО: Правильное применение цветов в зависимости от статуса
+                if (status == "Занято")
+                {
+                    // КРАСНОЕ - место занято другим пользователем
+                    seatButton.BackColor = Color.FromArgb(231, 76, 60);
+                    seatButton.ForeColor = Color.White;
+                    seatButton.Enabled = false;
+                    seatButton.Cursor = Cursors.No;
+                    seatButton.Text = "✕";
+                }
+                else if (status == "МоёБронирование")
+                {
+                    // ЗЕЛЁНОЕ - забронировано текущим пользователем
+                    seatButton.BackColor = Color.FromArgb(46, 204, 113);
+                    seatButton.ForeColor = Color.White;
+                    seatButton.Enabled = false;
+                    seatButton.Text = "✓";
+
+                    ToolTip tip = new ToolTip();
+                    tip.SetToolTip(seatButton, "Это место уже забронировано вами");
+                }
+                else
+                {
+                    // Свободное место
+                    if (seatType == "VIP")
+                    {
+                        seatButton.BackColor = Color.Gold;
+                        seatButton.ForeColor = Color.FromArgb(52, 73, 94);
+                    }
+                    else
+                    {
+                        seatButton.BackColor = Color.FromArgb(189, 195, 199);
+                        seatButton.ForeColor = Color.FromArgb(52, 73, 94);
+                    }
+
+                    seatButton.Click += SeatButton_Click;
+                    AddHoverEffect(seatButton, seatType);
+                }
+
+                // Номер ряда
+                if (seatNum == 1)
+                {
+                    Label lblRow = new Label
+                    {
+                        Text = $"Ряд {rowNum}",
+                        Location = new Point(10, 82 + rowNum * (seatHeight + verticalSpacing)),
+                        Size = new Size(60, 30),
+                        TextAlign = ContentAlignment.MiddleRight,
+                        Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                        ForeColor = Color.FromArgb(52, 73, 94)
+                    };
+                    seatPanel.Controls.Add(lblRow);
+                }
+
+                seatPanel.Controls.Add(seatButton);
+            }
+        }
+
+        private void CreateVirtualSeats()
+        {
+            int rows = 8;
+            int seatsPerRow = 10;
+            int seatWidth = 45;
+            int seatHeight = 40;
+            int horizontalSpacing = 10;
+            int verticalSpacing = 10;
+
             int screenWidth = seatsPerRow * (seatWidth + horizontalSpacing);
             Panel screen = new Panel
             {
@@ -296,7 +399,6 @@ namespace CinemaManagementSystem.Forms
             {
                 for (int seatNum = 1; seatNum <= seatsPerRow; seatNum++)
                 {
-                    // VIP - последние 2 ряда
                     string seatType = rowNum >= rows - 1 ? "VIP" : "Обычное";
 
                     Button seatButton = new Button
@@ -330,7 +432,6 @@ namespace CinemaManagementSystem.Forms
                     seatButton.Click += SeatButton_Click;
                     AddHoverEffect(seatButton, seatType);
 
-                    // Показываем номер ряда
                     if (seatNum == 1)
                     {
                         Label lblRow = new Label
@@ -347,114 +448,6 @@ namespace CinemaManagementSystem.Forms
 
                     seatPanel.Controls.Add(seatButton);
                 }
-            }
-        }
-
-        private void CreateSeatsFromData(DataTable seats, int maxRow, int maxSeat)
-        {
-            int seatWidth = 45;
-            int seatHeight = 40;
-            int horizontalSpacing = 10;
-            int verticalSpacing = 10;
-
-            // Создаем экран
-            int screenWidth = Math.Min(maxSeat * (seatWidth + horizontalSpacing), 850);
-            Panel screen = new Panel
-            {
-                Location = new Point((900 - screenWidth) / 2, 20),
-                Size = new Size(screenWidth, 40),
-                BackColor = Color.FromArgb(52, 73, 94)
-            };
-            Label lblScreen = new Label
-            {
-                Text = "🎬 ЭКРАН",
-                Dock = DockStyle.Fill,
-                TextAlign = ContentAlignment.MiddleCenter,
-                Font = new Font("Segoe UI", 14F, FontStyle.Bold),
-                ForeColor = Color.White
-            };
-            screen.Controls.Add(lblScreen);
-            seatPanel.Controls.Add(screen);
-
-            int startX = (900 - (maxSeat * (seatWidth + horizontalSpacing))) / 2;
-            if (startX < 80) startX = 80;
-
-            foreach (DataRow row in seats.Rows)
-            {
-                int rowNum = Convert.ToInt32(row["Ряд"]);
-                int seatNum = Convert.ToInt32(row["Номер_места"]);
-                string status = row["Статус_места"].ToString();
-                string seatType = row["Тип_места"] != DBNull.Value ? row["Тип_места"].ToString() : "Обычное";
-
-                Button seatButton = new Button
-                {
-                    Size = new Size(seatWidth, seatHeight),
-                    Location = new Point(
-                        startX + (seatNum - 1) * (seatWidth + horizontalSpacing),
-                        75 + rowNum * (seatHeight + verticalSpacing)
-                    ),
-                    Text = seatNum.ToString(),
-                    Tag = $"{rowNum}|{seatNum}|{seatType}|{status}",
-                    Font = new Font("Segoe UI", 10F, FontStyle.Bold),
-                    FlatStyle = FlatStyle.Flat,
-                    Cursor = Cursors.Hand
-                };
-
-                seatButton.FlatAppearance.BorderSize = 2;
-                seatButton.FlatAppearance.BorderColor = Color.FromArgb(52, 73, 94);
-
-                // Устанавливаем цвет в зависимости от статуса
-                if (status == "Занято")
-                {
-                    seatButton.BackColor = Color.FromArgb(231, 76, 60);
-                    seatButton.ForeColor = Color.White;
-                    seatButton.Enabled = false;
-                    seatButton.Cursor = Cursors.No;
-                    seatButton.Text = "✕";
-                }
-                else if (status == "МоёБронирование")
-                {
-                    seatButton.BackColor = Color.FromArgb(46, 204, 113);
-                    seatButton.ForeColor = Color.White;
-                    seatButton.Enabled = false;
-                    seatButton.Text = "✓";
-
-                    ToolTip tip = new ToolTip();
-                    tip.SetToolTip(seatButton, "Это место уже забронировано вами");
-                }
-                else
-                {
-                    if (seatType == "VIP")
-                    {
-                        seatButton.BackColor = Color.Gold;
-                        seatButton.ForeColor = Color.FromArgb(52, 73, 94);
-                    }
-                    else
-                    {
-                        seatButton.BackColor = Color.FromArgb(189, 195, 199);
-                        seatButton.ForeColor = Color.FromArgb(52, 73, 94);
-                    }
-
-                    seatButton.Click += SeatButton_Click;
-                    AddHoverEffect(seatButton, seatType);
-                }
-
-                // Показываем номер ряда
-                if (seatNum == 1)
-                {
-                    Label lblRow = new Label
-                    {
-                        Text = $"Ряд {rowNum}",
-                        Location = new Point(10, 82 + rowNum * (seatHeight + verticalSpacing)),
-                        Size = new Size(60, 30),
-                        TextAlign = ContentAlignment.MiddleRight,
-                        Font = new Font("Segoe UI", 9F, FontStyle.Bold),
-                        ForeColor = Color.FromArgb(52, 73, 94)
-                    };
-                    seatPanel.Controls.Add(lblRow);
-                }
-
-                seatPanel.Controls.Add(seatButton);
             }
         }
 
@@ -488,7 +481,6 @@ namespace CinemaManagementSystem.Forms
         {
             Button clickedButton = (Button)sender;
 
-            // Сбрасываем предыдущий выбор
             if (selectedSeatButton != null && selectedSeatButton != clickedButton)
             {
                 string oldInfo = selectedSeatButton.Tag.ToString();
@@ -505,7 +497,6 @@ namespace CinemaManagementSystem.Forms
                 }
             }
 
-            // Выбираем новое место
             selectedSeatButton = clickedButton;
             selectedSeatButton.BackColor = Color.FromArgb(52, 152, 219);
             selectedSeatButton.ForeColor = Color.White;
@@ -519,7 +510,6 @@ namespace CinemaManagementSystem.Forms
 
             lblSelectedInfo.Text = $"✓ Выбрано: Ряд {selectedRow}, Место {selectedSeat} ({selectedSeatType})  |  Цена: {price:N0} ₸";
 
-            // Проверяем достаточно ли средств
             if (price > userBalance)
             {
                 lblSelectedInfo.ForeColor = Color.FromArgb(231, 76, 60);
@@ -564,19 +554,15 @@ namespace CinemaManagementSystem.Forms
 
                 if (confirm == DialogResult.Yes)
                 {
-                    // Выполняем бронирование с оплатой
                     BookingResult result = bookingService.BookAndPayTicket(userId, sessionId, selectedRow, selectedSeat);
 
                     if (result.Success)
                     {
                         LastBookingId = result.BookingId;
-
-                        // Получаем информацию о билете
                         TicketInfo ticketInfo = bookingService.GetTicketInfo(result.BookingId);
 
                         if (ticketInfo != null)
                         {
-                            // Показываем успешное сообщение с предложением сохранить билет
                             DialogResult saveResult = MessageBox.Show(
                                 $"🎉 Билет успешно куплен!\n\n" +
                                 $"📋 Номер билета: {result.TicketNumber}\n" +
@@ -589,7 +575,6 @@ namespace CinemaManagementSystem.Forms
 
                             if (saveResult == DialogResult.Yes)
                             {
-                                // Показываем превью и возможность сохранить
                                 ticketService.ShowTicketPreview(ticketInfo);
                             }
                         }
