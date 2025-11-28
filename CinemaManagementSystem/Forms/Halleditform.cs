@@ -19,7 +19,6 @@ namespace CinemaManagementSystem.Forms
         // Контролы формы
         private TextBox txtName;
         private NumericUpDown numSeats;
-        private ComboBox cmbType;
         private NumericUpDown numRows;
         private NumericUpDown numSeatsPerRow;
         private CheckBox chkVip;
@@ -65,19 +64,7 @@ namespace CinemaManagementSystem.Forms
             this.Controls.Add(txtName);
             y += rowHeight;
 
-            // Тип зала
-            AddLabel("🎬 Тип зала:", labelX, y);
-            cmbType = new ComboBox
-            {
-                Location = new Point(controlX, y),
-                Size = new Size(controlWidth, 28),
-                Font = new Font("Segoe UI", 10F),
-                DropDownStyle = ComboBoxStyle.DropDownList
-            };
-            cmbType.Items.AddRange(new object[] { "Обычный", "IMAX", "3D", "VIP", "Премиум", "Dolby Atmos" });
-            cmbType.SelectedIndex = 0;
-            this.Controls.Add(cmbType);
-            y += rowHeight;
+            y += 0; // Тип зала не используется в базе данных
 
             // Количество мест
             AddLabel("💺 Количество мест *:", labelX, y);
@@ -205,12 +192,6 @@ namespace CinemaManagementSystem.Forms
                     txtName.Text = row["Наименование"]?.ToString() ?? "";
                     numSeats.Value = row["Количество_мест"] != DBNull.Value ? Convert.ToInt32(row["Количество_мест"]) : 100;
 
-                    // Тип зала
-                    string hallType = row["Тип_зала"]?.ToString() ?? "Обычный";
-                    int typeIndex = cmbType.Items.IndexOf(hallType);
-                    if (typeIndex >= 0)
-                        cmbType.SelectedIndex = typeIndex;
-
                     // Примерный расчёт рядов
                     int seats = (int)numSeats.Value;
                     int rows = (int)Math.Ceiling(Math.Sqrt(seats));
@@ -247,15 +228,13 @@ namespace CinemaManagementSystem.Forms
                     // Обновление
                     string updateQuery = @"UPDATE Залы SET 
                         Наименование = @Наименование,
-                        Количество_мест = @Количество_мест,
-                        Тип_зала = @Тип_зала
+                        Количество_мест = @Количество_мест
                         WHERE Номер_зала = @id";
 
                     var parameters = new SqlParameter[]
                     {
                         new SqlParameter("@Наименование", txtName.Text.Trim()),
                         new SqlParameter("@Количество_мест", (int)numSeats.Value),
-                        new SqlParameter("@Тип_зала", cmbType.SelectedItem.ToString()),
                         new SqlParameter("@id", hallId.Value)
                     };
 
@@ -263,16 +242,20 @@ namespace CinemaManagementSystem.Forms
                 }
                 else
                 {
-                    // Вставка нового зала
-                    string insertQuery = @"INSERT INTO Залы (Наименование, Количество_мест, Тип_зала)
-                        VALUES (@Наименование, @Количество_мест, @Тип_зала);
-                        SELECT SCOPE_IDENTITY();";
+                    // Вставка нового зала - нужно указать Номер_зала, т.к. это NOT IDENTITY
+                    // Получаем максимальный номер зала
+                    object maxId = dbService.ExecuteScalar("SELECT ISNULL(MAX(Номер_зала), 0) + 1 FROM Залы");
+                    int newHallNumber = Convert.ToInt32(maxId);
+
+                    string insertQuery = @"INSERT INTO Залы (Номер_зала, Наименование, Количество_мест)
+                        VALUES (@Номер_зала, @Наименование, @Количество_мест);
+                        SELECT @Номер_зала;";
 
                     var parameters = new SqlParameter[]
                     {
+                        new SqlParameter("@Номер_зала", newHallNumber),
                         new SqlParameter("@Наименование", txtName.Text.Trim()),
-                        new SqlParameter("@Количество_мест", (int)numSeats.Value),
-                        new SqlParameter("@Тип_зала", cmbType.SelectedItem.ToString())
+                        new SqlParameter("@Количество_мест", (int)numSeats.Value)
                     };
 
                     object result = dbService.ExecuteScalar(insertQuery, parameters);

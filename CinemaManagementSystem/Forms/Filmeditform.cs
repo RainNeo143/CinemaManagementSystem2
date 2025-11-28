@@ -94,8 +94,8 @@ namespace CinemaManagementSystem.Forms
             this.Controls.Add(numDuration);
             y += rowHeight;
 
-            // Режиссёр
-            AddLabel("🎥 Режиссёр:", 20, y);
+            // Фирма-производитель
+            AddLabel("🏭 Производитель:", 20, y);
             txtDirector = new TextBox
             {
                 Location = new Point(controlX, y),
@@ -105,7 +105,7 @@ namespace CinemaManagementSystem.Forms
             this.Controls.Add(txtDirector);
             y += rowHeight;
 
-            // Страна
+            // Страна-производитель
             AddLabel("🌍 Страна:", 20, y);
             txtCountry = new TextBox
             {
@@ -240,8 +240,8 @@ namespace CinemaManagementSystem.Forms
 
                     txtTitle.Text = row["Наименование"]?.ToString() ?? "";
                     numDuration.Value = row["Длительность"] != DBNull.Value ? Convert.ToInt32(row["Длительность"]) : 90;
-                    txtDirector.Text = row["Режиссёр"]?.ToString() ?? "";
-                    txtCountry.Text = row["Страна"]?.ToString() ?? "";
+                    txtDirector.Text = row["Фирма_производитель"]?.ToString() ?? "";
+                    txtCountry.Text = row["Страна_производитель"]?.ToString() ?? "";
                     txtActors.Text = row["Актёры"]?.ToString() ?? "";
                     txtDescription.Text = row["Описание"]?.ToString() ?? "";
 
@@ -294,8 +294,8 @@ namespace CinemaManagementSystem.Forms
                     new SqlParameter("@Наименование", txtTitle.Text.Trim()),
                     new SqlParameter("@Код_жанра", genreId.HasValue ? (object)genreId.Value : DBNull.Value),
                     new SqlParameter("@Длительность", (int)numDuration.Value),
-                    new SqlParameter("@Режиссёр", string.IsNullOrWhiteSpace(txtDirector.Text) ? DBNull.Value : (object)txtDirector.Text.Trim()),
-                    new SqlParameter("@Страна", string.IsNullOrWhiteSpace(txtCountry.Text) ? DBNull.Value : (object)txtCountry.Text.Trim()),
+                    new SqlParameter("@Фирма_производитель", string.IsNullOrWhiteSpace(txtDirector.Text) ? DBNull.Value : (object)txtDirector.Text.Trim()),
+                    new SqlParameter("@Страна_производитель", string.IsNullOrWhiteSpace(txtCountry.Text) ? DBNull.Value : (object)txtCountry.Text.Trim()),
                     new SqlParameter("@Актёры", string.IsNullOrWhiteSpace(txtActors.Text) ? DBNull.Value : (object)txtActors.Text.Trim()),
                     new SqlParameter("@Возрастные_ограничения", cmbAge.SelectedItem?.ToString() ?? "0+"),
                     new SqlParameter("@Описание", string.IsNullOrWhiteSpace(txtDescription.Text) ? DBNull.Value : (object)txtDescription.Text.Trim())
@@ -311,8 +311,8 @@ namespace CinemaManagementSystem.Forms
                         Наименование = @Наименование,
                         Код_жанра = @Код_жанра,
                         Длительность = @Длительность,
-                        Режиссёр = @Режиссёр,
-                        Страна = @Страна,
+                        Фирма_производитель = @Фирма_производитель,
+                        Страна_производитель = @Страна_производитель,
                         Актёры = @Актёры,
                         Возрастные_ограничения = @Возрастные_ограничения,
                         Описание = @Описание
@@ -324,8 +324,8 @@ namespace CinemaManagementSystem.Forms
                 {
                     // Вставка
                     string insertQuery = @"INSERT INTO Фильмы 
-                        (Наименование, Код_жанра, Длительность, Режиссёр, Страна, Актёры, Возрастные_ограничения, Описание)
-                        VALUES (@Наименование, @Код_жанра, @Длительность, @Режиссёр, @Страна, @Актёры, @Возрастные_ограничения, @Описание)";
+                        (Наименование, Код_жанра, Длительность, Фирма_производитель, Страна_производитель, Актёры, Возрастные_ограничения, Описание)
+                        VALUES (@Наименование, @Код_жанра, @Длительность, @Фирма_производитель, @Страна_производитель, @Актёры, @Возрастные_ограничения, @Описание)";
 
                     dbService.ExecuteNonQuery(insertQuery, parameters);
                 }

@@ -15,6 +15,9 @@ namespace CinemaManagementSystem.Forms
         private readonly ReportService reportService;
         private readonly DatabaseService dbService;
 
+        // Флаг для предотвращения срабатывания событий во время инициализации
+        private bool isInitializing = true;
+
         private TabControl tabControl;
         private Panel headerPanel;
         private Label lblWelcome;
@@ -63,8 +66,11 @@ namespace CinemaManagementSystem.Forms
             bookingService = new BookingService();
             reportService = new ReportService();
             dbService = new DatabaseService();
+
+            isInitializing = true;
             InitializeComponent();
             LoadAllData();
+            isInitializing = false;
         }
 
         private void InitializeComponent()
@@ -218,6 +224,10 @@ namespace CinemaManagementSystem.Forms
         {
             try
             {
+                // Проверяем, что контрол инициализирован
+                if (dgvFilms == null)
+                    return;
+
                 string query = @"
                     SELECT 
                         f.Код_фильма AS [ID],
@@ -225,16 +235,20 @@ namespace CinemaManagementSystem.Forms
                         ISNULL(j.Наименование, 'Не указан') AS [Жанр],
                         f.Длительность AS [Мин],
                         f.Возрастные_ограничения AS [Возраст],
-                        f.Режиссёр AS [Режиссёр],
-                        f.Страна AS [Страна],
+                        f.Фирма_производитель AS [Производитель],
+                        f.Страна_производитель AS [Страна],
                         LEFT(f.Описание, 50) + '...' AS [Описание]
                     FROM Фильмы f
                     LEFT JOIN Жанры j ON f.Код_жанра = j.Код_жанра
                     ORDER BY f.Наименование";
 
-                dgvFilms.DataSource = dbService.ExecuteQuery(query);
-                if (dgvFilms.Columns.Contains("ID"))
-                    dgvFilms.Columns["ID"].Width = 50;
+                DataTable filmsData = dbService.ExecuteQuery(query);
+                if (filmsData != null)
+                {
+                    dgvFilms.DataSource = filmsData;
+                    if (dgvFilms.Columns.Contains("ID"))
+                        dgvFilms.Columns["ID"].Width = 50;
+                }
             }
             catch (Exception ex)
             {
@@ -353,7 +367,7 @@ namespace CinemaManagementSystem.Forms
                 Size = new Size(150, 25),
                 Font = new Font("Segoe UI", 10F)
             };
-            dtpSessionFilter.ValueChanged += (s, e) => LoadSessions();
+            dtpSessionFilter.ValueChanged += (s, e) => { if (!isInitializing) LoadSessions(); };
 
             Label lblFilm = new Label
             {
@@ -370,7 +384,7 @@ namespace CinemaManagementSystem.Forms
                 Font = new Font("Segoe UI", 10F),
                 DropDownStyle = ComboBoxStyle.DropDownList
             };
-            cmbFilmFilter.SelectedIndexChanged += (s, e) => LoadSessions();
+            cmbFilmFilter.SelectedIndexChanged += (s, e) => { if (!isInitializing) LoadSessions(); };
 
             btnAddSession = CreateToolButton("➕ Добавить", Color.FromArgb(46, 204, 113), 530);
             btnAddSession.Click += BtnAddSession_Click;
@@ -402,21 +416,29 @@ namespace CinemaManagementSystem.Forms
         {
             try
             {
+                // Проверяем, что контрол инициализирован
+                if (cmbFilmFilter == null)
+                    return;
+
                 DataTable films = dbService.ExecuteQuery("SELECT Код_фильма, Наименование FROM Фильмы ORDER BY Наименование");
 
                 cmbFilmFilter.Items.Clear();
                 cmbFilmFilter.Items.Add(new ComboBoxItem { Value = 0, Text = "-- Все фильмы --" });
 
-                foreach (DataRow row in films.Rows)
+                if (films != null)
                 {
-                    cmbFilmFilter.Items.Add(new ComboBoxItem
+                    foreach (DataRow row in films.Rows)
                     {
-                        Value = Convert.ToInt32(row["Код_фильма"]),
-                        Text = row["Наименование"].ToString()
-                    });
+                        cmbFilmFilter.Items.Add(new ComboBoxItem
+                        {
+                            Value = Convert.ToInt32(row["Код_фильма"]),
+                            Text = row["Наименование"]?.ToString() ?? "Без названия"
+                        });
+                    }
                 }
 
-                cmbFilmFilter.SelectedIndex = 0;
+                if (cmbFilmFilter.Items.Count > 0)
+                    cmbFilmFilter.SelectedIndex = 0;
             }
             catch (Exception ex)
             {
@@ -429,6 +451,10 @@ namespace CinemaManagementSystem.Forms
         {
             try
             {
+                // Проверяем, что контролы инициализированы
+                if (dgvSessions == null || dtpSessionFilter == null || cmbFilmFilter == null)
+                    return;
+
                 string query = @"
                     SELECT 
                         s.Код_сеанса AS [ID],
@@ -463,10 +489,14 @@ namespace CinemaManagementSystem.Forms
 
                 query += " ORDER BY s.Дата, s.Время_начала";
 
-                dgvSessions.DataSource = dbService.ExecuteQuery(query, parameters.ToArray());
+                DataTable sessionsData = dbService.ExecuteQuery(query, parameters.ToArray());
+                if (sessionsData != null)
+                {
+                    dgvSessions.DataSource = sessionsData;
 
-                if (dgvSessions.Columns.Contains("ID"))
-                    dgvSessions.Columns["ID"].Width = 50;
+                    if (dgvSessions.Columns.Contains("ID"))
+                        dgvSessions.Columns["ID"].Width = 50;
+                }
             }
             catch (Exception ex)
             {
@@ -584,18 +614,25 @@ namespace CinemaManagementSystem.Forms
         {
             try
             {
+                // Проверяем, что контрол инициализирован
+                if (dgvHalls == null)
+                    return;
+
                 string query = @"
                     SELECT 
                         z.Номер_зала AS [№],
                         z.Наименование AS [Название],
                         z.Количество_мест AS [Мест],
-                        z.Тип_зала AS [Тип],
-                        (SELECT COUNT(*) FROM Места_в_залах WHERE Номер_зала = z.Номер_зала AND Тип_места = 'VIP') AS [VIP мест],
+                        (SELECT COUNT(*) FROM Места_в_залах WHERE Номер_зала = z.Номер_зала AND Тип_места = N'VIP') AS [VIP мест],
                         (SELECT COUNT(DISTINCT Код_сеанса) FROM Сеанс WHERE Номер_зала = z.Номер_зала AND Дата >= GETDATE()) AS [Сеансов]
                     FROM Залы z
                     ORDER BY z.Номер_зала";
 
-                dgvHalls.DataSource = dbService.ExecuteQuery(query);
+                DataTable hallsData = dbService.ExecuteQuery(query);
+                if (hallsData != null)
+                {
+                    dgvHalls.DataSource = hallsData;
+                }
             }
             catch (Exception ex)
             {
@@ -987,25 +1024,43 @@ namespace CinemaManagementSystem.Forms
         {
             try
             {
+                // Проверяем, что контролы инициализированы
+                if (dgvStatistics == null || chartRevenue == null || dtpStatsFrom == null || dtpStatsTo == null)
+                    return;
+
                 // Загружаем статистику
-                dgvStatistics.DataSource = bookingService.GetStatistics(dtpStatsFrom.Value, dtpStatsTo.Value);
+                DataTable statsData = bookingService.GetStatistics(dtpStatsFrom.Value, dtpStatsTo.Value);
+                if (statsData != null)
+                {
+                    dgvStatistics.DataSource = statsData;
+                }
 
                 // Загружаем график
                 DataTable popular = bookingService.GetPopularFilms(10);
-                chartRevenue.Series[0].Points.Clear();
 
-                foreach (DataRow row in popular.Rows)
+                if (chartRevenue.Series.Count > 0)
                 {
-                    string filmName = row["Фильм"].ToString();
-                    if (filmName.Length > 15)
-                        filmName = filmName.Substring(0, 12) + "...";
+                    chartRevenue.Series[0].Points.Clear();
 
-                    double revenue = row["Выручка"] != DBNull.Value ? Convert.ToDouble(row["Выручка"]) : 0;
-                    chartRevenue.Series[0].Points.AddXY(filmName, revenue);
+                    if (popular != null && popular.Rows.Count > 0)
+                    {
+                        foreach (DataRow row in popular.Rows)
+                        {
+                            string filmName = row["Фильм"]?.ToString() ?? "Неизвестно";
+                            if (filmName.Length > 15)
+                                filmName = filmName.Substring(0, 12) + "...";
+
+                            double revenue = row["Выручка"] != DBNull.Value ? Convert.ToDouble(row["Выручка"]) : 0;
+                            chartRevenue.Series[0].Points.AddXY(filmName, revenue);
+                        }
+                    }
+
+                    if (chartRevenue.ChartAreas.Count > 0)
+                    {
+                        chartRevenue.ChartAreas[0].AxisX.Interval = 1;
+                        chartRevenue.ChartAreas[0].AxisX.LabelStyle.Angle = -45;
+                    }
                 }
-
-                chartRevenue.ChartAreas[0].AxisX.Interval = 1;
-                chartRevenue.ChartAreas[0].AxisX.LabelStyle.Angle = -45;
             }
             catch (Exception ex)
             {
@@ -1068,11 +1123,50 @@ namespace CinemaManagementSystem.Forms
 
         private void LoadAllData()
         {
-            LoadFilms();
-            LoadFilmsComboBox();
-            LoadSessions();
-            LoadHalls();
-            LoadStatistics();
+            try
+            {
+                LoadFilms();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Ошибка загрузки фильмов: {ex.Message}");
+            }
+
+            try
+            {
+                LoadFilmsComboBox();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Ошибка загрузки списка фильмов: {ex.Message}");
+            }
+
+            try
+            {
+                LoadSessions();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Ошибка загрузки сеансов: {ex.Message}");
+            }
+
+            try
+            {
+                LoadHalls();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Ошибка загрузки залов: {ex.Message}");
+            }
+
+            try
+            {
+                LoadStatistics();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Ошибка загрузки статистики: {ex.Message}");
+            }
         }
 
         #endregion

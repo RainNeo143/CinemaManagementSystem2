@@ -390,6 +390,16 @@ namespace CinemaManagementSystem.Forms
                     return;
                 }
 
+                // Получаем первого сотрудника для назначения на сеанс (администратор по умолчанию)
+                int defaultEmployeeId = 1;
+                try
+                {
+                    object result = dbService.ExecuteScalar("SELECT TOP 1 Код_сотрудника FROM Сотрудники ORDER BY Код_сотрудника");
+                    if (result != null && result != DBNull.Value)
+                        defaultEmployeeId = Convert.ToInt32(result);
+                }
+                catch { }
+
                 var parameters = new System.Data.SqlClient.SqlParameter[]
                 {
                     new System.Data.SqlClient.SqlParameter("@Код_фильма", film.Value),
@@ -397,7 +407,8 @@ namespace CinemaManagementSystem.Forms
                     new System.Data.SqlClient.SqlParameter("@Дата", dtpDate.Value.Date),
                     new System.Data.SqlClient.SqlParameter("@Время_начала", dtpStartTime.Value.TimeOfDay),
                     new System.Data.SqlClient.SqlParameter("@Время_окончания", dtpEndTime.Value.TimeOfDay),
-                    new System.Data.SqlClient.SqlParameter("@Цена_билета", numPrice.Value)
+                    new System.Data.SqlClient.SqlParameter("@Цена_билета", numPrice.Value),
+                    new System.Data.SqlClient.SqlParameter("@Код_сотрудника", defaultEmployeeId)
                 };
 
                 string query;
@@ -418,8 +429,8 @@ namespace CinemaManagementSystem.Forms
                 }
                 else
                 {
-                    query = @"INSERT INTO Сеанс (Код_фильма, Номер_зала, Дата, Время_начала, Время_окончания, Цена_билета)
-                        VALUES (@Код_фильма, @Номер_зала, @Дата, @Время_начала, @Время_окончания, @Цена_билета)";
+                    query = @"INSERT INTO Сеанс (Код_фильма, Номер_зала, Дата, Время_начала, Время_окончания, Цена_билета, Код_сотрудника)
+                        VALUES (@Код_фильма, @Номер_зала, @Дата, @Время_начала, @Время_окончания, @Цена_билета, @Код_сотрудника)";
                     dbService.ExecuteNonQuery(query, parameters);
                 }
 
